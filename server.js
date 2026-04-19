@@ -21,6 +21,12 @@ const moduleStatus = {
   products_db: "pending",
   fee_calculator: "pending",
   youtube_scraper: "pending",
+  amazon_sp_api: "pending",
+  ppc_manager: "pending",
+  customer_service: "pending",
+  supplier_outreach: "pending",
+  review_requester: "pending",
+  repricing: "pending",
 };
 
 // ─── Run History ─────────────────────────────────────────────────────────────
@@ -29,6 +35,10 @@ const runHistory = {
   competitors: [],
   reviews: [],
   digest: [],
+  validation: [],
+  customerService: [],
+  reviewRequests: [],
+  repricing: [],
 };
 
 const MAX_HISTORY = 20;
@@ -46,6 +56,10 @@ const activeRuns = {
   competitors: false,
   reviews: false,
   digest: false,
+  validation: false,
+  customerService: false,
+  reviewRequests: false,
+  repricing: false,
 };
 
 // ─── Module Lazy Loaders ─────────────────────────────────────────────────────
@@ -101,6 +115,26 @@ async function getEmailAlerts() {
 
 async function getYouTubeScraper() {
   return loadModule("youtube_scraper", () => import("./youtube_scraper.js"));
+}
+
+async function getPPCManager() {
+  return loadModule("ppc_manager", () => import("./ppc_manager.js"));
+}
+
+async function getCustomerService() {
+  return loadModule("customer_service", () => import("./customer_service.js"));
+}
+
+async function getSupplierOutreach() {
+  return loadModule("supplier_outreach", () => import("./supplier_outreach.js"));
+}
+
+async function getReviewRequester() {
+  return loadModule("review_requester", () => import("./review_requester.js"));
+}
+
+async function getRepricing() {
+  return loadModule("repricing", () => import("./repricing.js"));
 }
 
 // ─── runAndTrack Wrapper ─────────────────────────────────────────────────────
@@ -234,11 +268,59 @@ async function runResearch() {
         console.log(`[Research] DRY RUN — skipping listing write for ${lead.asin}`);
       }
 
+      // Generate a SKU for this product
+      const sku = `FBA-${lead.asin}-${Date.now()}`;
+
+      // Submit listing to Amazon + start validation campaign
+      let validationCampaignId = null;
+      let listingSubmittedAt = null;
+
+      if (!DRY_RUN && listing) {
+        try {
+          const spApi = await loadModule("amazon_sp_api", () => import("./amazon_sp_api.js"));
+          const { hasSpApiCredentials } = await import("./amazon_auth.js");
+
+          if (hasSpApiCredentials()) {
+            await spApi.createListing(sku, {
+              title: listing.title || lead.title,
+              description: listing.description || "",
+              bulletPoints: listing.bulletPoints || [],
+              keywords: keywordData.keywords,
+              price: lead.price,
+              quantity: 0, // Start at 0 — validation mode
+            });
+            listingSubmittedAt = new Date().toISOString();
+            console.log(`[Research] Listing submitted to Amazon for ${lead.asin}`);
+
+            // Start validation PPC campaign
+            const ppc = await getPPCManager();
+            const { hasAdsCredentials } = await import("./amazon_auth.js");
+            if (hasAdsCredentials()) {
+              const campaign = await ppc.createValidationCampaign({
+                ...lead,
+                sku,
+                keywords: keywordData.keywords,
+              });
+              validationCampaignId = campaign.campaignId;
+              console.log(`[Research] Validation campaign started for ${lead.asin}`);
+            }
+          }
+        } catch (err) {
+          console.error(`[Research] SP-API/PPC setup failed for ${lead.asin}:`, err.message);
+        }
+      }
+
       const productEntry = {
         ...lead,
+        sku,
         keywords: keywordData.keywords,
         suppliers,
         listing,
+        listingSubmittedAt,
+        validationStatus: validationCampaignId ? "validating" : null,
+        validationCampaignId,
+        validationStartedAt: validationCampaignId ? new Date().toISOString() : null,
+        status: validationCampaignId ? "validating" : "researching",
       };
 
       dbMod.addOpportunity(db, productEntry);
@@ -265,6 +347,120 @@ async function runResearch() {
   }
 
   return newProducts;
+}
+
+// ─── Validation Check Flow ────────────────────────────────────────────────────
+async function runValidationCheck() {
+  const dbMod = await getDB();
+  const db = dbMod.loadDB();
+  const ppc = await getPPCManager();
+  const emailAlerts = await getEmailAlerts();
+  const spApi = await loadModule("amazon_sp_api", () => import("./amazon_sp_api.js"));
+  const outreach = await getSupplierOutreach();
+
+  const validating = db.opportunities.filter((o) => o.validationStatus === "validating");
+  console.log(`[Validation] Checking ${validating.length} products in validation...`);
+
+  const passed = [];
+  const failed = [];
+
+  for (const product of validating) {
+    try {
+      if (!product.validationCampaignId) continue;
+
+      // Check if 7 days have passed
+      const startedAt = new Date(product.validationStartedAt);
+      const daysSince = (Date.now() - startedAt.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSince < 7) {
+        console.log(`[Validation] ${product.asin} — ${daysSince.toFixed(1)} days in (need 7)`);
+        continue;
+      }
+
+      const metrics = await ppc.getCampaignMetrics(product.validationCampaignId);
+      const { passed: didPass, reason } = ppc.evaluateValidation(metrics);
+
+      dbMod.updateOpportunity(db, product.asin, {
+        validationStatus: didPass ? "passed" : "failed",
+        validationCompletedAt: new Date().toISOString(),
+        validationMetrics: metrics,
+        status: didPass ? "sourcing" : "passed", // "passed" = skipped in our status model
+      });
+
+      if (didPass) {
+        passed.push({ ...product, validationMetrics: metrics, validationReason: reason });
+
+        // Auto-contact suppliers
+        if (!DRY_RUN) {
+          try {
+            await outreach.contactTopSuppliers(product, DRY_RUN);
+          } catch (err) {
+            console.error(`[Validation] Supplier outreach failed for ${product.asin}:`, err.message);
+          }
+        }
+      } else {
+        failed.push({ ...product, validationReason: reason });
+      }
+
+      console.log(`[Validation] ${product.asin} — ${didPass ? "PASSED" : "FAILED"}: ${reason}`);
+    } catch (err) {
+      console.error(`[Validation] Error checking ${product.asin}:`, err.message);
+    }
+  }
+
+  dbMod.saveDB(db);
+
+  // Send email summary
+  if ((passed.length > 0 || failed.length > 0) && !DRY_RUN) {
+    try {
+      await emailAlerts.sendValidationSummary(passed, failed);
+    } catch (err) {
+      console.error("[Validation] Failed to send validation email:", err.message);
+    }
+  }
+
+  return { passed: passed.length, failed: failed.length };
+}
+
+// ─── Customer Service Flow ────────────────────────────────────────────────────
+async function runCustomerService() {
+  const cs = await getCustomerService();
+  const dbMod = await getDB();
+  const db = dbMod.loadDB();
+
+  const replied = await cs.handleBuyerMessages(DRY_RUN);
+
+  db.lastCustomerServiceAt = new Date().toISOString();
+  dbMod.saveDB(db);
+
+  return replied;
+}
+
+// ─── Review Request Flow ──────────────────────────────────────────────────────
+async function runReviewRequests() {
+  const requester = await getReviewRequester();
+  const dbMod = await getDB();
+  const db = dbMod.loadDB();
+
+  const count = await requester.requestPendingReviews(DRY_RUN);
+
+  db.lastReviewRequestAt = new Date().toISOString();
+  dbMod.saveDB(db);
+
+  return { requested: count };
+}
+
+// ─── Repricing Flow ───────────────────────────────────────────────────────────
+async function runRepricing() {
+  const repricer = await getRepricing();
+  const dbMod = await getDB();
+  const db = dbMod.loadDB();
+
+  const actions = await repricer.repriceProducts(DRY_RUN);
+
+  db.lastRepricingAt = new Date().toISOString();
+  dbMod.saveDB(db);
+
+  return actions;
 }
 
 // ─── Competitor Tracking Flow ─────────────────────────────────────────────────
@@ -352,6 +548,38 @@ cron.schedule("0 12 * * 0", () => {
   console.log("[Cron] 8am EDT Sunday — sending weekly digest");
   runAndTrack("digest", runWeeklyDigest).catch((err) =>
     console.error("[Cron] Digest cron failed:", err.message)
+  );
+});
+
+// 10am EDT = 14:00 UTC — validation check
+cron.schedule("0 14 * * *", () => {
+  console.log("[Cron] 10am EDT — running validation check");
+  runAndTrack("validation", runValidationCheck).catch((err) =>
+    console.error("[Cron] Validation cron failed:", err.message)
+  );
+});
+
+// Every 4 hours — customer service (answer buyer messages)
+cron.schedule("0 */4 * * *", () => {
+  console.log("[Cron] Every 4h — running customer service");
+  runAndTrack("customerService", runCustomerService).catch((err) =>
+    console.error("[Cron] Customer service cron failed:", err.message)
+  );
+});
+
+// 7am EDT = 11:00 UTC — review requests
+cron.schedule("0 11 * * *", () => {
+  console.log("[Cron] 7am EDT — requesting reviews");
+  runAndTrack("reviewRequests", runReviewRequests).catch((err) =>
+    console.error("[Cron] Review requests cron failed:", err.message)
+  );
+});
+
+// 11am EDT = 15:00 UTC — repricing
+cron.schedule("0 15 * * *", () => {
+  console.log("[Cron] 11am EDT — running repricing");
+  runAndTrack("repricing", runRepricing).catch((err) =>
+    console.error("[Cron] Repricing cron failed:", err.message)
   );
 });
 

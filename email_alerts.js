@@ -392,6 +392,57 @@ export async function sendWeeklyDigest(db) {
 }
 
 /**
+ * Send validation results summary — which products passed or failed.
+ */
+export async function sendValidationSummary(passed, failed) {
+  const passedRows = passed
+    .map(
+      (p) => `
+    <tr>
+      <td style="padding:8px;font-size:13px;">
+        <a href="https://www.amazon.com/dp/${p.asin}" style="color:#0066c0;">${escapeHtml(p.title?.slice(0, 60))}</a>
+      </td>
+      <td style="padding:8px;font-size:13px;color:#27ae60;font-weight:600;">PASSED</td>
+      <td style="padding:8px;font-size:13px;">${escapeHtml(p.validationReason || "")}</td>
+    </tr>`
+    )
+    .join("");
+
+  const failedRows = failed
+    .map(
+      (p) => `
+    <tr>
+      <td style="padding:8px;font-size:13px;">${escapeHtml(p.title?.slice(0, 60))}</td>
+      <td style="padding:8px;font-size:13px;color:#e74c3c;font-weight:600;">FAILED</td>
+      <td style="padding:8px;font-size:13px;">${escapeHtml(p.validationReason || "")}</td>
+    </tr>`
+    )
+    .join("");
+
+  const html = `
+    <div style="font-family:sans-serif;max-width:700px;margin:0 auto;">
+      <div style="background:#1a1a2e;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">
+        <h2 style="margin:0;">Product Validation Results</h2>
+        <p style="margin:4px 0 0;opacity:0.7;font-size:13px;">${new Date().toLocaleDateString()}</p>
+      </div>
+      <div style="background:white;padding:24px;border:1px solid #eee;">
+        <p style="font-size:14px;"><strong>${passed.length} passed</strong>, ${failed.length} failed validation</p>
+        ${passed.length > 0 ? `<p style="color:#27ae60;font-size:14px;font-weight:600;">✅ Order inventory for these products — they are validated sellers:</p>` : ""}
+        <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+          <thead><tr>
+            <th style="text-align:left;padding:8px;font-size:12px;color:#666;border-bottom:2px solid #eee;">Product</th>
+            <th style="text-align:left;padding:8px;font-size:12px;color:#666;border-bottom:2px solid #eee;">Result</th>
+            <th style="text-align:left;padding:8px;font-size:12px;color:#666;border-bottom:2px solid #eee;">Reason</th>
+          </tr></thead>
+          <tbody>${passedRows}${failedRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  return sendEmail({ subject: `FBA Validation: ${passed.length} products validated`, html });
+}
+
+/**
  * Escape HTML special characters to prevent XSS in email templates.
  */
 function escapeHtml(str) {

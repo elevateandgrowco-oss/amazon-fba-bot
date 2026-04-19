@@ -12,6 +12,10 @@ const DEFAULT_DB = {
   lastResearchAt: null,
   lastCompetitorCheckAt: null,
   lastReviewCheckAt: null,
+  lastRepricingAt: null,
+  lastCustomerServiceAt: null,
+  lastReviewRequestAt: null,
+  reviewRequestedOrderIds: [],
 };
 
 /**
@@ -86,6 +90,20 @@ export function addOpportunity(db, product) {
     suppliers: product.suppliers || [],
     listing: product.listing || null,
     keywords: product.keywords || [],
+    sku: product.sku || null,
+    currentPrice: product.currentPrice || product.price || 0,
+    lowestCompetitorPrice: product.lowestCompetitorPrice || 0,
+    source: product.source || "bestseller",
+    // Validation fields
+    validationStatus: product.validationStatus || null, // null | "validating" | "passed" | "failed"
+    validationCampaignId: product.validationCampaignId || null,
+    validationStartedAt: product.validationStartedAt || null,
+    validationCompletedAt: product.validationCompletedAt || null,
+    validationMetrics: product.validationMetrics || null,
+    // PPC fields
+    launchCampaignId: product.launchCampaignId || null,
+    listingSubmittedAt: product.listingSubmittedAt || null,
+    // History
     priceHistory: product.priceHistory || [{ date: new Date().toISOString(), price: product.price || 0 }],
     bsrHistory: product.bsrHistory || [{ date: new Date().toISOString(), bsr: product.bsr || 0 }],
     recentReviews: product.recentReviews || [],
