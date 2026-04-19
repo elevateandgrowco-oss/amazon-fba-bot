@@ -130,10 +130,29 @@ export async function getCampaignMetrics(campaignId) {
       },
     });
 
-    // Poll for report (simplified — in production use webhook or retry)
-    await new Promise((r) => setTimeout(r, 5000));
+    // Poll until report is ready (Amazon takes 10-90 seconds)
+    let data = null;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      await new Promise((r) => setTimeout(r, 10000)); // wait 10s each attempt
+      try {
+        const status = await adsRequest({ path: `/v2/reports/${report.reportId}` });
+        if (status.status === "SUCCESS") {
+          data = await adsRequest({ path: `/v2/reports/${report.reportId}/download` });
+          break;
+        }
+        if (status.status === "FAILURE") {
+          console.error(`[PPC] Report generation failed for campaign ${campaignId}`);
+          return null;
+        }
+        console.log(`[PPC] Report pending (attempt ${attempt + 1}/12)...`);
+      } catch {}
+    }
 
-    const data = await adsRequest({ path: `/v2/reports/${report.reportId}/download` });
+    if (!data) {
+      console.error(`[PPC] Report timed out for campaign ${campaignId}`);
+      return null;
+    }
+
     const row = Array.isArray(data) ? data.find((r) => r.campaignId == campaignId) : null;
 
     if (!row) return null;

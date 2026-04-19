@@ -21,6 +21,9 @@ const moduleStatus = {
   products_db: "pending",
   fee_calculator: "pending",
   youtube_scraper: "pending",
+  movers_shakers: "pending",
+  review_sentiment: "pending",
+  inventory_reorder: "pending",
   amazon_sp_api: "pending",
   ppc_manager: "pending",
   customer_service: "pending",
@@ -40,6 +43,7 @@ const runHistory = {
   customerService: [],
   reviewRequests: [],
   repricing: [],
+  inventoryReorder: [],
 };
 
 const MAX_HISTORY = 20;
@@ -61,6 +65,7 @@ const activeRuns = {
   customerService: false,
   reviewRequests: false,
   repricing: false,
+  inventoryReorder: false,
 };
 
 // ─── Module Lazy Loaders ─────────────────────────────────────────────────────
@@ -140,6 +145,18 @@ async function getReviewRequester() {
 
 async function getRepricing() {
   return loadModule("repricing", () => import("./repricing.js"));
+}
+
+async function getMovers() {
+  return loadModule("movers_shakers", () => import("./movers_shakers.js"));
+}
+
+async function getReviewSentiment() {
+  return loadModule("review_sentiment", () => import("./review_sentiment.js"));
+}
+
+async function getInventoryReorder() {
+  return loadModule("inventory_reorder", () => import("./inventory_reorder.js"));
 }
 
 // ─── runAndTrack Wrapper ─────────────────────────────────────────────────────
@@ -224,15 +241,25 @@ async function runResearch() {
     console.error("[Research] YouTube sourcing failed:", err.message);
   }
 
+  // Get Movers & Shakers leads (fast-rising products = proven demand)
+  let moversLeads = [];
+  try {
+    const movers = await getMovers();
+    moversLeads = await movers.findMovers(15);
+    console.log(`[Research] Movers & Shakers leads: ${moversLeads.length}`);
+  } catch (err) {
+    console.error("[Research] Movers & Shakers failed:", err.message);
+  }
+
   console.log("[Research] Finding product leads...");
   const leads = await researcher.findLeads(20);
+
+  // Merge all lead sources
+  const allLeads = [...leads, ...ytLeads, ...moversLeads];
 
   db.totalScanned = (db.totalScanned || 0) + allLeads.length + 50; // 50 = rough estimate of discarded candidates
 
   const newProducts = [];
-
-  // Merge YouTube leads into the pipeline
-  const allLeads = [...leads, ...ytLeads];
 
   for (const lead of allLeads) {
     try {
@@ -385,6 +412,28 @@ async function runResearch() {
     (p) => p.listing && p.opportunityScore >= 60 && p.margin >= 25
   );
 
+  // Run review sentiment analysis on new leads to surface competitor weaknesses
+  if (newProducts.length > 0 && !DRY_RUN) {
+    try {
+      const sentiment = await getReviewSentiment();
+      for (const product of newProducts.slice(0, 5)) {
+        try {
+          const analysis = await sentiment.analyzeCompetitorReviews(product.asin, product.title);
+          if (analysis) {
+            const dbMod2 = await getDB();
+            const db2 = dbMod2.loadDB();
+            dbMod2.updateOpportunity(db2, product.asin, { reviewSentiment: analysis });
+            dbMod2.saveDB(db2);
+          }
+        } catch (err) {
+          console.error(`[Research] Review sentiment failed for ${product.asin}:`, err.message);
+        }
+      }
+    } catch (err) {
+      console.error("[Research] Review sentiment module failed:", err.message);
+    }
+  }
+
   if (actionableProducts.length > 0 && !DRY_RUN) {
     try {
       await emailAlerts.sendOpportunityAlert(actionableProducts);
@@ -439,12 +488,25 @@ async function runValidationCheck() {
       if (didPass) {
         passed.push({ ...product, validationMetrics: metrics, validationReason: reason, confidence, seasonalWarning });
 
-        // Auto-contact suppliers
         if (!DRY_RUN) {
+          // Auto-contact suppliers
           try {
             await outreach.contactTopSuppliers(product, DRY_RUN);
           } catch (err) {
             console.error(`[Validation] Supplier outreach failed for ${product.asin}:`, err.message);
+          }
+
+          // Launch full PPC campaign
+          try {
+            const ppcMod = await getPPCManager();
+            const launchCampaignId = await ppcMod.createLaunchCampaign({
+              ...product,
+              keywords: product.keywords || [],
+            });
+            dbMod.updateOpportunity(db, product.asin, { launchCampaignId, status: "launched" });
+            console.log(`[Validation] Launch campaign created for ${product.asin}`);
+          } catch (err) {
+            console.error(`[Validation] Launch campaign failed for ${product.asin}:`, err.message);
           }
         }
       } else {
@@ -508,6 +570,20 @@ async function runRepricing() {
   const actions = await repricer.repriceProducts(DRY_RUN);
 
   db.lastRepricingAt = new Date().toISOString();
+  dbMod.saveDB(db);
+
+  return actions;
+}
+
+// ─── Inventory Reorder Flow ───────────────────────────────────────────────────
+async function runInventoryReorder() {
+  const reorder = await getInventoryReorder();
+  const dbMod = await getDB();
+  const db = dbMod.loadDB();
+
+  const actions = await reorder.checkReorderPoints(DRY_RUN);
+
+  db.lastInventoryReorderAt = new Date().toISOString();
   dbMod.saveDB(db);
 
   return actions;
@@ -630,6 +706,14 @@ cron.schedule("0 15 * * *", () => {
   console.log("[Cron] 11am EDT — running repricing");
   runAndTrack("repricing", runRepricing).catch((err) =>
     console.error("[Cron] Repricing cron failed:", err.message)
+  );
+});
+
+// 8am EDT = 12:00 UTC — inventory reorder check
+cron.schedule("0 12 * * *", () => {
+  console.log("[Cron] 8am EDT — checking inventory reorder points");
+  runAndTrack("inventoryReorder", runInventoryReorder).catch((err) =>
+    console.error("[Cron] Inventory reorder cron failed:", err.message)
   );
 });
 
@@ -1054,6 +1138,7 @@ app.listen(PORT, () => {
       getReviewMonitor(),
       getEmailAlerts(),
       getYouTubeScraper(),
+      getMovers(),
     ]).then((results) => {
       const failed = results.filter((r) => r.status === "rejected");
       if (failed.length > 0) {

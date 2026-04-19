@@ -19,10 +19,13 @@ async function fetchAutocompleteSuggestions(prefix) {
 
   try {
     const encoded = encodeURIComponent(prefix.trim().toLowerCase());
+    // Randomize session ID to avoid bot detection
+    const sessionId = `${Math.floor(Math.random() * 999)}-${Math.floor(Math.random() * 9999999)}-${Math.floor(Math.random() * 9999999)}`;
+    const requestId = Math.random().toString(36).slice(2, 12);
     const url =
       `https://completion.amazon.com/api/2017/suggestions` +
-      `?session-id=000-0000000-0000000` +
-      `&customer-id=&request-id=` +
+      `?session-id=${sessionId}` +
+      `&customer-id=&request-id=${requestId}` +
       `&page-type=Gateway` +
       `&lop=en_US` +
       `&site-variant=desktop` +

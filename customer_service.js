@@ -3,6 +3,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getRecentOrders, getBuyerMessages, replyToBuyer } from "./amazon_sp_api.js";
 import { hasSpApiCredentials } from "./amazon_auth.js";
+import { loadDB, saveDB } from "./products_db.js";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -56,6 +57,9 @@ export async function handleBuyerMessages(dryRun = false) {
 
   console.log("[CS] Checking for buyer messages...");
 
+  const db = loadDB();
+  const repliedMessageIds = new Set(db.repliedMessageIds || []);
+
   const orders = await getRecentOrders(30);
   console.log(`[CS] Checking ${orders.length} recent orders for messages`);
 
@@ -70,6 +74,13 @@ export async function handleBuyerMessages(dryRun = false) {
       const lastMsg = messages[messages.length - 1];
       if (lastMsg.participant?.role !== "buyer") continue;
 
+      // Dedup: skip if we already replied to this specific message
+      const messageKey = `${order.AmazonOrderId}_${lastMsg.messageId || lastMsg.createdDate || messages.length}`;
+      if (repliedMessageIds.has(messageKey)) {
+        console.log(`[CS] Already replied to message ${messageKey} — skipping`);
+        continue;
+      }
+
       // Get product title from order
       const productTitle = order.OrderItems?.[0]?.Title || "our product";
 
@@ -77,6 +88,7 @@ export async function handleBuyerMessages(dryRun = false) {
 
       if (!dryRun) {
         await replyToBuyer(order.AmazonOrderId, reply);
+        repliedMessageIds.add(messageKey);
         console.log(`[CS] Replied to buyer for order ${order.AmazonOrderId}`);
       } else {
         console.log(`[CS] DRY RUN — would reply to order ${order.AmazonOrderId}: "${reply.slice(0, 80)}..."`);
@@ -93,6 +105,12 @@ export async function handleBuyerMessages(dryRun = false) {
     } catch (err) {
       console.error(`[CS] Error handling messages for order ${order.AmazonOrderId}:`, err.message);
     }
+  }
+
+  // Save replied message IDs to prevent duplicate replies
+  if (!dryRun && replied.length > 0) {
+    db.repliedMessageIds = Array.from(repliedMessageIds).slice(-500); // keep last 500
+    saveDB(db);
   }
 
   console.log(`[CS] Replied to ${replied.length} buyer messages`);

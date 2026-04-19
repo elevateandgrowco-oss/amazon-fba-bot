@@ -458,7 +458,9 @@ export async function findLeads(maxLeads = 20) {
         const details = await scrapeProductDetails(product.asin, browser);
 
         // Use full BSR if available, otherwise use page position rank
-        const bsr = details.fullBSR > 0 ? details.fullBSR : product.bsr * 1000;
+        // Use full BSR from detail page; fall back to category rank * 100 (conservative estimate)
+        const bsr = details.fullBSR > 0 ? details.fullBSR : Math.max(product.bsr * 100, 5000);
+        if (!details.fullBSR) console.warn(`[Researcher] No full BSR for ${product.asin} — using estimated ${bsr}`);
         const weightLbs = details.weightLbs || 1.0;
 
         // Estimate COGS at 25-30% of selling price (source from China)

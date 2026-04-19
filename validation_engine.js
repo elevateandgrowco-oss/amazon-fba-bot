@@ -90,8 +90,9 @@ export async function checkGoogleTrends(keyword) {
     const values = points.map((p) => p.value?.[0] || 0);
     signal.raw = values;
 
-    // Compare last 6 months average vs. 12-24 months ago average
-    const recent = values.slice(-26).slice(-13); // last 6 months (approx)
+    // Google Trends returns weekly data points (~52/year)
+    // Compare last 26 weeks (6 months) vs. prior 26 weeks (6-12 months ago)
+    const recent = values.slice(-26);           // last 6 months
     const older = values.slice(-52, -26);       // 6-12 months ago
 
     const recentAvg = recent.reduce((s, v) => s + v, 0) / recent.length;
@@ -101,7 +102,9 @@ export async function checkGoogleTrends(keyword) {
     const avg = values.reduce((s, v) => s + v, 0) / values.length;
     const variance = values.reduce((s, v) => s + Math.pow(v - avg, 2), 0) / values.length;
     const stdDev = Math.sqrt(variance);
-    signal.seasonal = stdDev > 20 && avg > 0;
+    // Seasonal if coefficient of variation > 40% (normalized to scale)
+    const cv = avg > 0 ? stdDev / avg : 0;
+    signal.seasonal = cv > 0.4 && avg > 10;
 
     // Trend direction
     const growthRate = olderAvg > 0 ? (recentAvg - olderAvg) / olderAvg : 0;

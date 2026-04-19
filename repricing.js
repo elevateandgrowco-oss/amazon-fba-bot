@@ -32,8 +32,10 @@ function calculateOptimalPrice(product, lowestCompetitorPrice) {
     // We're priced more than 10% above — undercut slightly to compete
     targetPrice = parseFloat((lowestCompetitorPrice * (1 - MAX_UNDERCUT_PCT)).toFixed(2));
   } else if (currentPrice < lowestCompetitorPrice * 0.95) {
-    // We're already the lowest by a lot — raise price slightly to increase margin
+    // We're already the lowest by a lot — raise price up toward competitor to protect margin
     targetPrice = parseFloat((lowestCompetitorPrice * (1 - MAX_UNDERCUT_PCT)).toFixed(2));
+    // Only raise, never lower further
+    if (targetPrice <= currentPrice) return null;
   } else {
     // Price is competitive — no change needed
     return null;
