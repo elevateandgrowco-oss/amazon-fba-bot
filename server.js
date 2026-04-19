@@ -28,6 +28,9 @@ const moduleStatus = {
   return_monitor: "pending",
   pnl_tracker: "pending",
   rank_tracker: "pending",
+  suppression_detector: "pending",
+  price_elasticity: "pending",
+  q4_forecaster: "pending",
   amazon_sp_api: "pending",
   ppc_manager: "pending",
   customer_service: "pending",
@@ -52,6 +55,9 @@ const runHistory = {
   returnCheck: [],
   pnlReport: [],
   rankTracking: [],
+  suppressionCheck: [],
+  priceElasticity: [],
+  seasonalForecast: [],
 };
 
 const MAX_HISTORY = 20;
@@ -78,6 +84,9 @@ const activeRuns = {
   returnCheck: false,
   pnlReport: false,
   rankTracking: false,
+  suppressionCheck: false,
+  priceElasticity: false,
+  seasonalForecast: false,
 };
 
 // ─── Module Lazy Loaders ─────────────────────────────────────────────────────
@@ -185,6 +194,18 @@ async function getPnLTracker() {
 
 async function getRankTracker() {
   return loadModule("rank_tracker", () => import("./rank_tracker.js"));
+}
+
+async function getSuppressionDetector() {
+  return loadModule("suppression_detector", () => import("./suppression_detector.js"));
+}
+
+async function getPriceElasticity() {
+  return loadModule("price_elasticity", () => import("./price_elasticity.js"));
+}
+
+async function getQ4Forecaster() {
+  return loadModule("q4_forecaster", () => import("./q4_forecaster.js"));
 }
 
 // ─── runAndTrack Wrapper ─────────────────────────────────────────────────────
@@ -603,6 +624,24 @@ async function runRepricing() {
   return actions;
 }
 
+// ─── Suppression Detector Flow ───────────────────────────────────────────────
+async function runSuppressionCheck() {
+  const detector = await getSuppressionDetector();
+  return detector.checkListingSuppression(DRY_RUN);
+}
+
+// ─── Price Elasticity Flow ────────────────────────────────────────────────────
+async function runPriceElasticity() {
+  const engine = await getPriceElasticity();
+  return engine.runPriceElasticityTests(DRY_RUN);
+}
+
+// ─── Seasonal Forecast Flow ───────────────────────────────────────────────────
+async function runSeasonalForecast() {
+  const forecaster = await getQ4Forecaster();
+  return forecaster.runSeasonalForecast(DRY_RUN);
+}
+
 // ─── Hijacker Monitor Flow ────────────────────────────────────────────────────
 async function runHijackerCheck() {
   const monitor = await getHijackerMonitor();
@@ -798,6 +837,30 @@ cron.schedule("0 18 * * *", () => {
   console.log("[Cron] 2pm EDT — keyword rank tracking");
   runAndTrack("rankTracking", runRankTracking).catch((err) =>
     console.error("[Cron] Rank tracking cron failed:", err.message)
+  );
+});
+
+// Every 2 hours — listing suppression check (urgent — you stop selling when suppressed)
+cron.schedule("0 */2 * * *", () => {
+  console.log("[Cron] Every 2h — listing suppression check");
+  runAndTrack("suppressionCheck", runSuppressionCheck).catch((err) =>
+    console.error("[Cron] Suppression check cron failed:", err.message)
+  );
+});
+
+// Weekly Monday 8am EDT = 12:00 UTC — price elasticity tests
+cron.schedule("0 12 * * 1", () => {
+  console.log("[Cron] Monday 8am EDT — price elasticity engine");
+  runAndTrack("priceElasticity", runPriceElasticity).catch((err) =>
+    console.error("[Cron] Price elasticity cron failed:", err.message)
+  );
+});
+
+// 1st of every month 9am EDT = 13:00 UTC — seasonal inventory forecast
+cron.schedule("0 13 1 * *", () => {
+  console.log("[Cron] 1st of month — seasonal inventory forecast");
+  runAndTrack("seasonalForecast", runSeasonalForecast).catch((err) =>
+    console.error("[Cron] Seasonal forecast cron failed:", err.message)
   );
 });
 

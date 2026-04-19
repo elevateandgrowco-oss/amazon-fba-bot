@@ -220,6 +220,72 @@ export async function getFBAInventory() {
   return res.payload?.inventorySummaries || [];
 }
 
+// ─── Listing Status ───────────────────────────────────────────────────────────
+
+/**
+ * Get listing status and any suppression issues for a SKU.
+ * @param {string} sku
+ * @returns {{ status, issues, isSuppressed }}
+ */
+export async function getListingStatus(sku) {
+  try {
+    const res = await spRequest({
+      path: `/listings/2021-08-01/items/${SELLER_ID}/${encodeURIComponent(sku)}`,
+      params: {
+        marketplaceIds: MARKETPLACE_ID,
+        includedData: "issues,summaries,attributes",
+      },
+    });
+
+    const summaries = res.summaries || [];
+    const issues = res.issues || [];
+    const summary = summaries.find((s) => s.marketplaceId === MARKETPLACE_ID) || summaries[0] || {};
+    const status = summary.status || "UNKNOWN";
+    const isSuppressed = status === "SUPPRESSED" || issues.some((i) => i.severity === "ERROR");
+
+    return {
+      sku,
+      status,
+      isSuppressed,
+      issues: issues.map((i) => ({
+        severity: i.severity,
+        code: i.code,
+        message: i.message,
+        attributeNames: i.attributeNames || [],
+      })),
+    };
+  } catch (err) {
+    console.error(`[SP-API] getListingStatus failed for SKU ${sku}:`, err.message);
+    return { sku, status: "ERROR", isSuppressed: false, issues: [] };
+  }
+}
+
+/**
+ * Get sales & traffic report for conversion rate data.
+ * Returns per-ASIN: { sessions, unitSessionPercentage, orderedUnits }
+ * @param {number} days
+ */
+export async function getSalesTrafficReport(days = 7) {
+  try {
+    const reportId = await createReport("GET_SALES_AND_TRAFFIC_REPORT", days);
+    const { status, reportDocumentId } = await waitForReport(reportId, 180000);
+    if (status !== "DONE" || !reportDocumentId) return [];
+
+    const rows = await downloadReport(reportDocumentId);
+    return rows.map((r) => ({
+      asin: r["Child ASIN"] || r["(Child) ASIN"] || "",
+      sku: r["SKU"] || "",
+      sessions: parseInt(r["Sessions"] || "0", 10),
+      unitSessionPct: parseFloat((r["Unit Session Percentage"] || "0").replace("%", "")) / 100,
+      orderedUnits: parseInt(r["Units Ordered"] || "0", 10),
+      orderedRevenue: parseFloat(r["Ordered Product Sales"] || "0"),
+    }));
+  } catch (err) {
+    console.error("[SP-API] getSalesTrafficReport failed:", err.message);
+    return [];
+  }
+}
+
 // ─── Pricing / Offers ─────────────────────────────────────────────────────────
 
 /**
