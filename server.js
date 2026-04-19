@@ -24,6 +24,10 @@ const moduleStatus = {
   movers_shakers: "pending",
   review_sentiment: "pending",
   inventory_reorder: "pending",
+  hijacker_monitor: "pending",
+  return_monitor: "pending",
+  pnl_tracker: "pending",
+  rank_tracker: "pending",
   amazon_sp_api: "pending",
   ppc_manager: "pending",
   customer_service: "pending",
@@ -44,6 +48,10 @@ const runHistory = {
   reviewRequests: [],
   repricing: [],
   inventoryReorder: [],
+  hijackerCheck: [],
+  returnCheck: [],
+  pnlReport: [],
+  rankTracking: [],
 };
 
 const MAX_HISTORY = 20;
@@ -66,6 +74,10 @@ const activeRuns = {
   reviewRequests: false,
   repricing: false,
   inventoryReorder: false,
+  hijackerCheck: false,
+  returnCheck: false,
+  pnlReport: false,
+  rankTracking: false,
 };
 
 // ─── Module Lazy Loaders ─────────────────────────────────────────────────────
@@ -157,6 +169,22 @@ async function getReviewSentiment() {
 
 async function getInventoryReorder() {
   return loadModule("inventory_reorder", () => import("./inventory_reorder.js"));
+}
+
+async function getHijackerMonitor() {
+  return loadModule("hijacker_monitor", () => import("./hijacker_monitor.js"));
+}
+
+async function getReturnMonitor() {
+  return loadModule("return_monitor", () => import("./return_monitor.js"));
+}
+
+async function getPnLTracker() {
+  return loadModule("pnl_tracker", () => import("./pnl_tracker.js"));
+}
+
+async function getRankTracker() {
+  return loadModule("rank_tracker", () => import("./rank_tracker.js"));
 }
 
 // ─── runAndTrack Wrapper ─────────────────────────────────────────────────────
@@ -575,6 +603,30 @@ async function runRepricing() {
   return actions;
 }
 
+// ─── Hijacker Monitor Flow ────────────────────────────────────────────────────
+async function runHijackerCheck() {
+  const monitor = await getHijackerMonitor();
+  return monitor.checkHijackers(DRY_RUN);
+}
+
+// ─── Return Monitor Flow ──────────────────────────────────────────────────────
+async function runReturnCheck() {
+  const monitor = await getReturnMonitor();
+  return monitor.checkReturnRates(DRY_RUN);
+}
+
+// ─── P&L Report Flow ──────────────────────────────────────────────────────────
+async function runPnLReport() {
+  const tracker = await getPnLTracker();
+  return tracker.runPnLReport(DRY_RUN);
+}
+
+// ─── Rank Tracking Flow ───────────────────────────────────────────────────────
+async function runRankTracking() {
+  const tracker = await getRankTracker();
+  return tracker.trackKeywordRanks(DRY_RUN);
+}
+
 // ─── Inventory Reorder Flow ───────────────────────────────────────────────────
 async function runInventoryReorder() {
   const reorder = await getInventoryReorder();
@@ -714,6 +766,38 @@ cron.schedule("0 12 * * *", () => {
   console.log("[Cron] 8am EDT — checking inventory reorder points");
   runAndTrack("inventoryReorder", runInventoryReorder).catch((err) =>
     console.error("[Cron] Inventory reorder cron failed:", err.message)
+  );
+});
+
+// Every 6 hours — hijacker / buy box check
+cron.schedule("0 */6 * * *", () => {
+  console.log("[Cron] Every 6h — hijacker & buy box check");
+  runAndTrack("hijackerCheck", runHijackerCheck).catch((err) =>
+    console.error("[Cron] Hijacker check cron failed:", err.message)
+  );
+});
+
+// Daily 5pm EDT = 21:00 UTC — return rate check
+cron.schedule("0 21 * * *", () => {
+  console.log("[Cron] 5pm EDT — checking return rates");
+  runAndTrack("returnCheck", runReturnCheck).catch((err) =>
+    console.error("[Cron] Return check cron failed:", err.message)
+  );
+});
+
+// Sundays 9am EDT = 13:00 UTC — weekly P&L report
+cron.schedule("0 13 * * 0", () => {
+  console.log("[Cron] Sunday 9am EDT — sending P&L report");
+  runAndTrack("pnlReport", runPnLReport).catch((err) =>
+    console.error("[Cron] P&L report cron failed:", err.message)
+  );
+});
+
+// Daily 2pm EDT = 18:00 UTC — keyword rank tracking
+cron.schedule("0 18 * * *", () => {
+  console.log("[Cron] 2pm EDT — keyword rank tracking");
+  runAndTrack("rankTracking", runRankTracking).catch((err) =>
+    console.error("[Cron] Rank tracking cron failed:", err.message)
   );
 });
 

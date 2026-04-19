@@ -219,3 +219,142 @@ export async function getFBAInventory() {
   });
   return res.payload?.inventorySummaries || [];
 }
+
+// ─── Pricing / Offers ─────────────────────────────────────────────────────────
+
+/**
+ * Get all active offers for an ASIN (to detect hijackers and buy box owner).
+ * @param {string} asin
+ * @returns {object} { offers, buyBoxSellerId }
+ */
+export async function getItemOffers(asin) {
+  try {
+    const res = await spRequest({
+      path: `/products/pricing/v0/items/${asin}/offers`,
+      params: {
+        MarketplaceId: MARKETPLACE_ID,
+        ItemCondition: "New",
+        CustomerType: "Consumer",
+      },
+    });
+
+    const offers = res.payload?.Offers || [];
+    const summary = res.payload?.Summary || {};
+
+    // Find buy box winner
+    const buyBoxOffer = offers.find((o) => o.IsBuyBoxWinner);
+    const buyBoxSellerId = buyBoxOffer?.SellerId || null;
+
+    return {
+      asin,
+      offers: offers.map((o) => ({
+        sellerId: o.SellerId,
+        price: o.ListingPrice?.Amount,
+        isBuyBoxWinner: o.IsBuyBoxWinner || false,
+        isFulfilledByAmazon: o.IsFulfilledByAmazon || false,
+        feedbackCount: o.SellerFeedbackRating?.FeedbackCount || 0,
+      })),
+      buyBoxSellerId,
+      lowestPrice: summary.LowestPrices?.[0]?.LandedPrice?.Amount || null,
+      totalOfferCount: summary.TotalOfferCount || offers.length,
+    };
+  } catch (err) {
+    console.error(`[SP-API] getItemOffers failed for ${asin}:`, err.message);
+    return { asin, offers: [], buyBoxSellerId: null, totalOfferCount: 0 };
+  }
+}
+
+// ─── Reports ──────────────────────────────────────────────────────────────────
+
+/**
+ * Create a report and return the reportId.
+ * @param {string} reportType - e.g. "GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA"
+ * @param {number} days - data window in days
+ */
+export async function createReport(reportType, days = 30) {
+  const dataStartTime = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const res = await spRequest({
+    method: "POST",
+    path: "/reports/2021-06-30/reports",
+    data: {
+      reportType,
+      dataStartTime,
+      marketplaceIds: [MARKETPLACE_ID],
+    },
+  });
+  return res.reportId;
+}
+
+/**
+ * Poll report status until done. Returns { status, reportDocumentId }.
+ * @param {string} reportId
+ * @param {number} maxWaitMs
+ */
+export async function waitForReport(reportId, maxWaitMs = 120000) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    await new Promise((r) => setTimeout(r, 10000));
+    try {
+      const res = await spRequest({ path: `/reports/2021-06-30/reports/${reportId}` });
+      if (res.processingStatus === "DONE") {
+        return { status: "DONE", reportDocumentId: res.reportDocumentId };
+      }
+      if (res.processingStatus === "FATAL" || res.processingStatus === "CANCELLED") {
+        return { status: res.processingStatus };
+      }
+    } catch {}
+  }
+  return { status: "TIMEOUT" };
+}
+
+/**
+ * Download a report document and return parsed TSV rows.
+ * @param {string} reportDocumentId
+ * @returns {Array<object>}
+ */
+export async function downloadReport(reportDocumentId) {
+  const meta = await spRequest({ path: `/reports/2021-06-30/documents/${reportDocumentId}` });
+  const url = meta.url;
+
+  const res = await axios.get(url, { timeout: 30000, responseType: "text" });
+  const lines = res.data.split("\n").filter(Boolean);
+  if (lines.length < 2) return [];
+
+  const headers = lines[0].split("\t");
+  return lines.slice(1).map((line) => {
+    const vals = line.split("\t");
+    return Object.fromEntries(headers.map((h, i) => [h.trim(), (vals[i] || "").trim()]));
+  });
+}
+
+// ─── Sales Metrics ────────────────────────────────────────────────────────────
+
+/**
+ * Get order-level sales data for the last N days (for P&L calculation).
+ * Returns { orders, totalRevenue, unitsSold }
+ * @param {number} days
+ */
+export async function getSalesData(days = 30) {
+  const orders = await getRecentOrders(days);
+  const detailed = [];
+
+  for (const order of orders.slice(0, 100)) {
+    try {
+      const items = await getOrderItems(order.AmazonOrderId);
+      for (const item of items) {
+        detailed.push({
+          orderId: order.AmazonOrderId,
+          asin: item.ASIN,
+          sku: item.SellerSKU,
+          title: item.Title,
+          qty: item.QuantityOrdered || 1,
+          revenue: parseFloat(item.ItemPrice?.Amount || 0),
+          purchaseDate: order.PurchaseDate,
+        });
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    } catch {}
+  }
+
+  return detailed;
+}
