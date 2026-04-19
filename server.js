@@ -31,6 +31,9 @@ const moduleStatus = {
   suppression_detector: "pending",
   price_elasticity: "pending",
   q4_forecaster: "pending",
+  negative_keyword_miner: "pending",
+  account_health_monitor: "pending",
+  launch_coupon: "pending",
   amazon_sp_api: "pending",
   ppc_manager: "pending",
   customer_service: "pending",
@@ -58,6 +61,9 @@ const runHistory = {
   suppressionCheck: [],
   priceElasticity: [],
   seasonalForecast: [],
+  negativeKeywords: [],
+  accountHealth: [],
+  launchCoupon: [],
 };
 
 const MAX_HISTORY = 20;
@@ -87,6 +93,9 @@ const activeRuns = {
   suppressionCheck: false,
   priceElasticity: false,
   seasonalForecast: false,
+  negativeKeywords: false,
+  accountHealth: false,
+  launchCoupon: false,
 };
 
 // ─── Module Lazy Loaders ─────────────────────────────────────────────────────
@@ -206,6 +215,18 @@ async function getPriceElasticity() {
 
 async function getQ4Forecaster() {
   return loadModule("q4_forecaster", () => import("./q4_forecaster.js"));
+}
+
+async function getNegativeKeywordMiner() {
+  return loadModule("negative_keyword_miner", () => import("./negative_keyword_miner.js"));
+}
+
+async function getAccountHealthMonitor() {
+  return loadModule("account_health_monitor", () => import("./account_health_monitor.js"));
+}
+
+async function getLaunchCoupon() {
+  return loadModule("launch_coupon", () => import("./launch_coupon.js"));
 }
 
 // ─── runAndTrack Wrapper ─────────────────────────────────────────────────────
@@ -557,6 +578,14 @@ async function runValidationCheck() {
           } catch (err) {
             console.error(`[Validation] Launch campaign failed for ${product.asin}:`, err.message);
           }
+
+          // Activate launch price (15% off for 14 days to drive ranking velocity)
+          try {
+            const launcher = await getLaunchCoupon();
+            await launcher.activateLaunchPrice(product, DRY_RUN);
+          } catch (err) {
+            console.error(`[Validation] Launch price failed for ${product.asin}:`, err.message);
+          }
         }
       } else {
         failed.push({ ...product, validationReason: reason });
@@ -622,6 +651,24 @@ async function runRepricing() {
   dbMod.saveDB(db);
 
   return actions;
+}
+
+// ─── Negative Keyword Miner Flow ─────────────────────────────────────────────
+async function runNegativeKeywords() {
+  const miner = await getNegativeKeywordMiner();
+  return miner.mineNegativeKeywords(DRY_RUN);
+}
+
+// ─── Account Health Flow ──────────────────────────────────────────────────────
+async function runAccountHealth() {
+  const monitor = await getAccountHealthMonitor();
+  return monitor.checkAccountHealth(DRY_RUN);
+}
+
+// ─── Launch Coupon Flow ───────────────────────────────────────────────────────
+async function runLaunchCoupon() {
+  const launcher = await getLaunchCoupon();
+  return launcher.manageLaunchPrices(DRY_RUN);
 }
 
 // ─── Suppression Detector Flow ───────────────────────────────────────────────
@@ -861,6 +908,30 @@ cron.schedule("0 13 1 * *", () => {
   console.log("[Cron] 1st of month — seasonal inventory forecast");
   runAndTrack("seasonalForecast", runSeasonalForecast).catch((err) =>
     console.error("[Cron] Seasonal forecast cron failed:", err.message)
+  );
+});
+
+// Weekly Wednesday 8am EDT = 12:00 UTC — negative keyword mining
+cron.schedule("0 12 * * 3", () => {
+  console.log("[Cron] Wednesday 8am EDT — mining negative keywords");
+  runAndTrack("negativeKeywords", runNegativeKeywords).catch((err) =>
+    console.error("[Cron] Negative keyword cron failed:", err.message)
+  );
+});
+
+// Daily 8am EDT = 12:00 UTC — account health check
+cron.schedule("30 12 * * *", () => {
+  console.log("[Cron] 8:30am EDT — account health check");
+  runAndTrack("accountHealth", runAccountHealth).catch((err) =>
+    console.error("[Cron] Account health cron failed:", err.message)
+  );
+});
+
+// Every 6 hours — manage launch prices (activate new, restore expired)
+cron.schedule("0 */6 * * *", () => {
+  console.log("[Cron] Every 6h — managing launch prices");
+  runAndTrack("launchCoupon", runLaunchCoupon).catch((err) =>
+    console.error("[Cron] Launch coupon cron failed:", err.message)
   );
 });
 
