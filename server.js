@@ -380,10 +380,14 @@ async function runResearch() {
   dbMod.saveDB(db);
   dbMod.printSummary(db);
 
-  // Send opportunity alert if new products found
-  if (newProducts.length > 0 && !DRY_RUN) {
+  // Send single best product email — only if pre-validation passed AND listing written
+  const actionableProducts = newProducts.filter(
+    (p) => p.listing && p.opportunityScore >= 60 && p.margin >= 25
+  );
+
+  if (actionableProducts.length > 0 && !DRY_RUN) {
     try {
-      await emailAlerts.sendOpportunityAlert(newProducts);
+      await emailAlerts.sendOpportunityAlert(actionableProducts);
     } catch (err) {
       console.error("[Research] Failed to send opportunity alert:", err.message);
     }

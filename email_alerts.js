@@ -52,74 +52,110 @@ function usd(n) {
 // ─── Opportunity Alert ────────────────────────────────────────────────────────
 
 /**
- * Send alert when new high-score FBA opportunities are found.
- * @param {Array} products - Array of product objects (top 3 shown)
+ * Send a single "order this product" action email for the best validated opportunity.
+ * @param {Array} products - Array of product objects — only the top 1 is shown
  */
 export async function sendOpportunityAlert(products) {
   if (!products || products.length === 0) return;
 
-  const top3 = products.slice(0, 3);
+  // Pick single best product by opportunity score
+  const p = [...products].sort((a, b) => b.opportunityScore - a.opportunityScore)[0];
 
-  const productCards = top3
-    .map(
-      (p) => `
-    <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:8px;padding:20px;margin-bottom:16px;">
-      <h3 style="margin:0 0 8px;color:#1a1a2e;font-size:16px;">${escapeHtml(p.title?.slice(0, 80) || "Unknown Product")}</h3>
-      <table style="width:100%;font-size:14px;color:#333;">
-        <tr>
-          <td style="padding:3px 8px 3px 0;"><strong>Score:</strong></td>
-          <td style="padding:3px 0;">${p.opportunityScore}/100</td>
-          <td style="padding:3px 8px 3px 16px;"><strong>ASIN:</strong></td>
-          <td style="padding:3px 0;font-family:monospace;">${p.asin}</td>
-        </tr>
-        <tr>
-          <td style="padding:3px 8px 3px 0;"><strong>Price:</strong></td>
-          <td style="padding:3px 0;">${usd(p.price)}</td>
-          <td style="padding:3px 8px 3px 16px;"><strong>BSR:</strong></td>
-          <td style="padding:3px 0;">#${(p.bsr || 0).toLocaleString()}</td>
-        </tr>
-        <tr>
-          <td style="padding:3px 8px 3px 0;"><strong>Est. Monthly Revenue:</strong></td>
-          <td style="padding:3px 0;">${usd(p.estimatedMonthlyRevenue)}</td>
-          <td style="padding:3px 8px 3px 16px;"><strong>Margin:</strong></td>
-          <td style="padding:3px 0;">${p.margin}%</td>
-        </tr>
-        <tr>
-          <td style="padding:3px 8px 3px 0;"><strong>Reviews:</strong></td>
-          <td style="padding:3px 0;">${(p.reviews || 0).toLocaleString()}</td>
-          <td style="padding:3px 8px 3px 16px;"><strong>Rating:</strong></td>
-          <td style="padding:3px 0;">${p.rating}/5</td>
-        </tr>
-        ${
-          p.suppliers && p.suppliers.length > 0
-            ? `<tr>
-          <td style="padding:3px 8px 3px 0;"><strong>Top Supplier:</strong></td>
-          <td colspan="3" style="padding:3px 0;">${escapeHtml(p.suppliers[0].name || "")} — ${escapeHtml(p.suppliers[0].priceRange || "")} (MOQ: ${p.suppliers[0].moq})</td>
-        </tr>`
-            : ""
-        }
+  const supplier = p.suppliers?.[0];
+  const listing = p.listing;
+  const orderQty = 200;
+  const totalCost = supplier ? `~${usd((p.estimatedCOGS || p.price * 0.25) * orderQty)}` : "TBD";
+  const monthlyProfit = usd((p.estimatedProfit || 0) * (p.estimatedMonthlySales || 100));
+
+  const supplierSection = supplier
+    ? `
+    <div style="background:#f0fff4;border:1px solid #c0e8c0;border-radius:8px;padding:20px;margin-bottom:20px;">
+      <h2 style="margin:0 0 12px;font-size:16px;color:#1a1a2e;">Step 2 — Order from Supplier</h2>
+      <table style="font-size:14px;color:#333;width:100%;">
+        <tr><td style="padding:4px 12px 4px 0;"><strong>Supplier:</strong></td><td>${escapeHtml(supplier.name || "")}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;"><strong>Price Range:</strong></td><td>${escapeHtml(supplier.priceRange || "")}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;"><strong>Min Order:</strong></td><td>${supplier.moq || 100} units</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;"><strong>Recommended Order:</strong></td><td>${orderQty} units</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;"><strong>Total Inventory Cost:</strong></td><td><strong>${totalCost}</strong></td></tr>
+        ${supplier.url ? `<tr><td colspan="2" style="padding-top:10px;"><a href="${escapeHtml(supplier.url)}" style="background:#27ae60;color:white;padding:8px 20px;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px;">Contact Supplier on Alibaba →</a></td></tr>` : ""}
       </table>
-      <a href="https://www.amazon.com/dp/${p.asin}" style="display:inline-block;margin-top:10px;color:#0066c0;font-size:13px;">View on Amazon →</a>
-    </div>
-  `
-    )
-    .join("");
+    </div>`
+    : `<div style="background:#fffbf0;border:1px solid #f0dca0;border-radius:8px;padding:16px;margin-bottom:20px;font-size:14px;">No supplier found yet — search Alibaba for: <strong>${escapeHtml(p.title?.split(/[,|(]/)[0].trim() || "")}</strong></div>`;
+
+  const listingSection = listing
+    ? `
+    <div style="background:#f8f9ff;border:1px solid #d0d8f8;border-radius:8px;padding:20px;margin-bottom:20px;">
+      <h2 style="margin:0 0 12px;font-size:16px;color:#1a1a2e;">Step 3 — Your Amazon Listing (ready to paste)</h2>
+      <p style="font-size:13px;color:#555;margin:0 0 12px;">This listing has already been submitted to your Amazon account automatically. No action needed.</p>
+      <div style="background:white;border:1px solid #e0e0e0;border-radius:6px;padding:16px;font-size:13px;color:#333;">
+        <p style="margin:0 0 8px;"><strong>Title:</strong> ${escapeHtml(listing.title || p.title || "")}</p>
+        ${listing.bulletPoints?.length > 0 ? `<p style="margin:0 0 4px;"><strong>Bullet Points:</strong></p><ul style="margin:0 0 8px;padding-left:20px;">${listing.bulletPoints.map(b => `<li style="margin-bottom:4px;">${escapeHtml(b)}</li>`).join("")}</ul>` : ""}
+        ${listing.keywords?.length > 0 ? `<p style="margin:0;"><strong>Keywords:</strong> ${escapeHtml(Array.isArray(listing.keywords) ? listing.keywords.join(", ") : listing.keywords)}</p>` : ""}
+      </div>
+    </div>`
+    : "";
 
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;">
+
+      <!-- Header -->
       <div style="background:#1a1a2e;color:white;padding:24px;border-radius:8px 8px 0 0;">
-        <h1 style="margin:0;font-size:22px;">New FBA Opportunities Found</h1>
-        <p style="margin:8px 0 0;opacity:0.8;font-size:14px;">${products.length} new product${products.length !== 1 ? "s" : ""} identified — showing top ${top3.length}</p>
+        <h1 style="margin:0;font-size:24px;">Order This Product</h1>
+        <p style="margin:8px 0 0;opacity:0.8;font-size:14px;">Your bot found a validated opportunity. Here's everything you need.</p>
       </div>
+
       <div style="padding:24px;background:#fff;border:1px solid #e0e0e0;border-top:0;border-radius:0 0 8px 8px;">
-        ${productCards}
-        <p style="font-size:12px;color:#888;margin-top:24px;">Sent by Amazon FBA Bot</p>
+
+        <!-- Product -->
+        <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:8px;padding:20px;margin-bottom:20px;">
+          <h2 style="margin:0 0 4px;font-size:18px;color:#1a1a2e;">${escapeHtml(p.title?.slice(0, 80) || "Unknown Product")}</h2>
+          <a href="https://www.amazon.com/dp/${p.asin}" style="color:#0066c0;font-size:13px;">View on Amazon →</a>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px;">
+            <div style="background:white;border:1px solid #e0e0e0;border-radius:6px;padding:10px 16px;text-align:center;flex:1;min-width:100px;">
+              <div style="font-size:22px;font-weight:700;color:#27ae60;">${monthlyProfit}</div>
+              <div style="font-size:11px;color:#777;text-transform:uppercase;">Est. Monthly Profit</div>
+            </div>
+            <div style="background:white;border:1px solid #e0e0e0;border-radius:6px;padding:10px 16px;text-align:center;flex:1;min-width:100px;">
+              <div style="font-size:22px;font-weight:700;color:#2980b9;">${p.margin || 0}%</div>
+              <div style="font-size:11px;color:#777;text-transform:uppercase;">Margin</div>
+            </div>
+            <div style="background:white;border:1px solid #e0e0e0;border-radius:6px;padding:10px 16px;text-align:center;flex:1;min-width:100px;">
+              <div style="font-size:22px;font-weight:700;color:#8e44ad;">${p.opportunityScore}/100</div>
+              <div style="font-size:11px;color:#777;text-transform:uppercase;">Bot Score</div>
+            </div>
+            <div style="background:white;border:1px solid #e0e0e0;border-radius:6px;padding:10px 16px;text-align:center;flex:1;min-width:100px;">
+              <div style="font-size:22px;font-weight:700;color:#f39c12;">${usd(p.price)}</div>
+              <div style="font-size:11px;color:#777;text-transform:uppercase;">Sell Price</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 1 -->
+        <div style="background:#f0f8ff;border:1px solid #c0d8f0;border-radius:8px;padding:20px;margin-bottom:20px;">
+          <h2 style="margin:0 0 8px;font-size:16px;color:#1a1a2e;">Step 1 — Done ✅</h2>
+          <p style="margin:0;font-size:14px;color:#555;">Listing has been submitted to your Amazon Seller Central automatically. PPC validation campaign is running.</p>
+        </div>
+
+        <!-- Step 2 — Supplier -->
+        ${supplierSection}
+
+        <!-- Step 3 — Listing -->
+        ${listingSection}
+
+        <!-- Step 4 -->
+        <div style="background:#fff8f0;border:1px solid #f0d0a0;border-radius:8px;padding:20px;margin-bottom:20px;">
+          <h2 style="margin:0 0 8px;font-size:16px;color:#1a1a2e;">Step 4 — Ship to Amazon</h2>
+          <p style="margin:0;font-size:14px;color:#555;">Tell your supplier to ship directly to an Amazon FBA warehouse, or use a prep center (MyFBAPrep, ShipBob) to receive and forward the inventory. You never touch a box.</p>
+        </div>
+
+        <hr style="border:0;border-top:1px solid #eee;margin:20px 0;">
+        <p style="font-size:12px;color:#888;margin:0;">Sent by your Amazon FBA Bot — ${new Date().toLocaleString()}</p>
       </div>
     </div>
   `;
 
   return sendEmail({
-    subject: `FBA Bot: ${products.length} New Opportunit${products.length !== 1 ? "ies" : "y"} Found`,
+    subject: `Order This Product — ${escapeHtml(p.title?.slice(0, 50) || "New FBA Opportunity")}`,
     html,
   });
 }
@@ -392,54 +428,32 @@ export async function sendWeeklyDigest(db) {
 }
 
 /**
- * Send validation results summary — which products passed or failed.
+ * Send single "order this product" email for the best validated product.
+ * If multiple passed, picks the one with highest combined score + margin + monthly profit.
  */
 export async function sendValidationSummary(passed, failed) {
-  const passedRows = passed
-    .map(
-      (p) => `
-    <tr>
-      <td style="padding:8px;font-size:13px;">
-        <a href="https://www.amazon.com/dp/${p.asin}" style="color:#0066c0;">${escapeHtml(p.title?.slice(0, 60))}</a>
-      </td>
-      <td style="padding:8px;font-size:13px;color:#27ae60;font-weight:600;">PASSED</td>
-      <td style="padding:8px;font-size:13px;">${escapeHtml(p.validationReason || "")}</td>
-    </tr>`
-    )
-    .join("");
+  if (passed.length === 0) {
+    // All failed — just log, no email needed
+    console.log(`[Email] All ${failed.length} products failed validation — no email sent`);
+    return;
+  }
 
-  const failedRows = failed
-    .map(
-      (p) => `
-    <tr>
-      <td style="padding:8px;font-size:13px;">${escapeHtml(p.title?.slice(0, 60))}</td>
-      <td style="padding:8px;font-size:13px;color:#e74c3c;font-weight:600;">FAILED</td>
-      <td style="padding:8px;font-size:13px;">${escapeHtml(p.validationReason || "")}</td>
-    </tr>`
-    )
-    .join("");
+  // Pick the single best product using a composite score:
+  // 60% validation score + 20% margin + 20% estimated monthly profit potential
+  const best = [...passed].sort((a, b) => {
+    const scoreA =
+      (a.validationMetrics?.score || a.opportunityScore || 0) * 0.6 +
+      (a.margin || 0) * 0.2 +
+      Math.min((a.estimatedMonthlyRevenue || 0) / 100, 30) * 0.2;
+    const scoreB =
+      (b.validationMetrics?.score || b.opportunityScore || 0) * 0.6 +
+      (b.margin || 0) * 0.2 +
+      Math.min((b.estimatedMonthlyRevenue || 0) / 100, 30) * 0.2;
+    return scoreB - scoreA;
+  })[0];
 
-  const html = `
-    <div style="font-family:sans-serif;max-width:700px;margin:0 auto;">
-      <div style="background:#1a1a2e;color:white;padding:20px 24px;border-radius:8px 8px 0 0;">
-        <h2 style="margin:0;">Product Validation Results</h2>
-        <p style="margin:4px 0 0;opacity:0.7;font-size:13px;">${new Date().toLocaleDateString()}</p>
-      </div>
-      <div style="background:white;padding:24px;border:1px solid #eee;">
-        <p style="font-size:14px;"><strong>${passed.length} passed</strong>, ${failed.length} failed validation</p>
-        ${passed.length > 0 ? `<p style="color:#27ae60;font-size:14px;font-weight:600;">✅ Order inventory for these products — they are validated sellers:</p>` : ""}
-        <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
-          <thead><tr>
-            <th style="text-align:left;padding:8px;font-size:12px;color:#666;border-bottom:2px solid #eee;">Product</th>
-            <th style="text-align:left;padding:8px;font-size:12px;color:#666;border-bottom:2px solid #eee;">Result</th>
-            <th style="text-align:left;padding:8px;font-size:12px;color:#666;border-bottom:2px solid #eee;">Reason</th>
-          </tr></thead>
-          <tbody>${passedRows}${failedRows}</tbody>
-        </table>
-      </div>
-    </div>`;
-
-  return sendEmail({ subject: `FBA Validation: ${passed.length} products validated`, html });
+  // Reuse the main order email format
+  return sendOpportunityAlert([best]);
 }
 
 /**
