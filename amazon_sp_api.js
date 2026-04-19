@@ -40,6 +40,24 @@ async function spRequest({ method = "GET", path, params = {}, data = null }) {
 export async function createListing(sku, listing) {
   console.log(`[SP-API] Creating listing for SKU: ${sku}`);
 
+  // Build image attributes from supplier images
+  const imageAttributes = {};
+  const images = (listing.images || []).filter(
+    (url) => url && typeof url === "string" && url.startsWith("http")
+  );
+
+  if (images.length > 0) {
+    imageAttributes.main_product_image_locator = [
+      { media_location: images[0], marketplace_id: MARKETPLACE_ID },
+    ];
+    images.slice(1, 8).forEach((imgUrl, i) => {
+      imageAttributes[`other_product_image_locator_${i + 1}`] = [
+        { media_location: imgUrl, marketplace_id: MARKETPLACE_ID },
+      ];
+    });
+    console.log(`[SP-API] Submitting ${images.length} product image(s) for SKU ${sku}`);
+  }
+
   const body = {
     productType: "PRODUCT",
     requirements: "LISTING",
@@ -65,6 +83,7 @@ export async function createListing(sku, listing) {
           marketplace_id: MARKETPLACE_ID,
         },
       ],
+      ...imageAttributes,
     },
   };
 

@@ -180,6 +180,13 @@ export async function findSuppliers(productKeyword) {
         const linkEl = card.querySelector("a[href]");
         const url = linkEl?.href || "";
 
+        // Product images from supplier card
+        const imgEls = card.querySelectorAll("img[src], img[data-src]");
+        const images = [...imgEls]
+          .map((img) => img.src || img.getAttribute("data-src") || "")
+          .filter((src) => src && src.startsWith("http") && !src.includes("icon") && !src.includes("logo") && !src.includes("badge"))
+          .slice(0, 6);
+
         results.push({
           name,
           priceRange,
@@ -189,6 +196,7 @@ export async function findSuppliers(productKeyword) {
           tradeAssurance,
           verified,
           url,
+          images,
         });
       }
 
@@ -226,8 +234,15 @@ export async function findSuppliers(productKeyword) {
           const linkEl = card.querySelector("a[href]");
           const url = linkEl?.href || "";
 
+          // Grab product images from the card
+          const imgEls = card.querySelectorAll("img[src], img[data-src]");
+          const images = [...imgEls]
+            .map((img) => img.src || img.getAttribute("data-src") || "")
+            .filter((src) => src && src.startsWith("http") && !src.includes("icon") && !src.includes("logo"))
+            .slice(0, 6);
+
           if (name || priceRange) {
-            results.push({ name, priceRange, moqText, responseText: "", yearsText: "", tradeAssurance, verified: false, url });
+            results.push({ name, priceRange, moqText, responseText: "", yearsText: "", tradeAssurance, verified: false, url, images });
             count++;
           }
         }
@@ -271,6 +286,7 @@ export async function findSuppliers(productKeyword) {
         tradeAssurance: s.tradeAssurance,
         verified: s.verified,
         url: s.url,
+        images: s.images || [],
         score: 0,
       };
       supplier.score = scoreSupplier(supplier);

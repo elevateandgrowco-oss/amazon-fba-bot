@@ -420,6 +420,9 @@ async function runResearch() {
           const { hasSpApiCredentials } = await import("./amazon_auth.js");
 
           if (hasSpApiCredentials()) {
+            // Collect images from top supplier (Alibaba photos → Amazon listing)
+            const supplierImages = suppliers?.[0]?.images || [];
+
             await spApi.createListing(sku, {
               title: listing.title || lead.title,
               description: listing.description || "",
@@ -427,6 +430,7 @@ async function runResearch() {
               keywords: keywordData.keywords,
               price: lead.price,
               quantity: 0, // Start at 0 — validation mode
+              images: supplierImages,
             });
             listingSubmittedAt = new Date().toISOString();
             console.log(`[Research] Listing submitted to Amazon for ${lead.asin}`);
