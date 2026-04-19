@@ -20,6 +20,7 @@ const moduleStatus = {
   email_alerts: "pending",
   products_db: "pending",
   fee_calculator: "pending",
+  youtube_scraper: "pending",
 };
 
 // ─── Run History ─────────────────────────────────────────────────────────────
@@ -98,6 +99,10 @@ async function getEmailAlerts() {
   return loadModule("email_alerts", () => import("./email_alerts.js"));
 }
 
+async function getYouTubeScraper() {
+  return loadModule("youtube_scraper", () => import("./youtube_scraper.js"));
+}
+
 // ─── runAndTrack Wrapper ─────────────────────────────────────────────────────
 async function runAndTrack(type, fn) {
   if (activeRuns[type]) {
@@ -165,14 +170,32 @@ async function runResearch() {
   const listingWriter = await getListingWriter();
   const emailAlerts = await getEmailAlerts();
 
+  // Get YouTube-sourced product niches
+  let ytLeads = [];
+  try {
+    const ytScraper = await getYouTubeScraper();
+    const niches = await ytScraper.extractProductNiches();
+    if (niches.length > 0 && !DRY_RUN) {
+      ytLeads = await researcher.searchByKeywords(niches, 10);
+      console.log(`[Research] YouTube leads: ${ytLeads.length}`);
+    } else if (niches.length > 0) {
+      console.log(`[Research] DRY RUN — skipping YouTube Amazon search (${niches.length} niches extracted)`);
+    }
+  } catch (err) {
+    console.error("[Research] YouTube sourcing failed:", err.message);
+  }
+
   console.log("[Research] Finding product leads...");
   const leads = await researcher.findLeads(20);
 
-  db.totalScanned = (db.totalScanned || 0) + leads.length + 50; // 50 = rough estimate of discarded candidates
+  db.totalScanned = (db.totalScanned || 0) + allLeads.length + 50; // 50 = rough estimate of discarded candidates
 
   const newProducts = [];
 
-  for (const lead of leads) {
+  // Merge YouTube leads into the pipeline
+  const allLeads = [...leads, ...ytLeads];
+
+  for (const lead of allLeads) {
     try {
       // Skip already researched products
       if (dbMod.hasBeenResearched(db, lead.asin)) {
@@ -752,6 +775,7 @@ app.listen(PORT, () => {
       getCompetitorTracker(),
       getReviewMonitor(),
       getEmailAlerts(),
+      getYouTubeScraper(),
     ]).then((results) => {
       const failed = results.filter((r) => r.status === "rejected");
       if (failed.length > 0) {

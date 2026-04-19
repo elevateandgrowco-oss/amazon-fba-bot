@@ -242,6 +242,172 @@ export async function scrapeProductDetails(asin, browser) {
 }
 
 /**
+ * Search Amazon for a specific keyword and return raw products.
+ */
+async function searchByKeyword(keyword, browser) {
+  const page = await setupPage(browser);
+  const products = [];
+
+  try {
+    const url = `https://www.amazon.com/s?k=${encodeURIComponent(keyword)}`;
+    console.log(`[Researcher] Searching Amazon for: "${keyword}"`);
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await sleep(1500);
+
+    if (await hasCaptcha(page)) {
+      console.warn(`[Researcher] CAPTCHA on search "${keyword}" — skipping`);
+      return [];
+    }
+
+    const items = await page.evaluate(() => {
+      const results = [];
+      const containers = document.querySelectorAll('[data-component-type="s-search-result"]');
+
+      for (const el of containers) {
+        const asin = el.getAttribute("data-asin");
+        if (!asin) continue;
+
+        const titleEl = el.querySelector("h2 span");
+        const title = titleEl?.textContent?.trim() || "";
+
+        const priceEl = el.querySelector(".a-price .a-offscreen");
+        const priceText = priceEl?.textContent?.trim() || "";
+        const price = parseFloat(priceText.replace(/[^0-9.]/g, "")) || 0;
+
+        const ratingEl = el.querySelector("[aria-label*='out of 5 stars']");
+        const ratingText = ratingEl?.getAttribute("aria-label") || "";
+        const rating = parseFloat(ratingText) || 0;
+
+        const reviewEl = el.querySelector(".a-size-base.s-underline-text");
+        const reviewText = reviewEl?.textContent?.trim().replace(/,/g, "") || "0";
+        const reviewCount = parseInt(reviewText.replace(/[^0-9]/g, ""), 10) || 0;
+
+        if (asin && title && price > 0) {
+          results.push({ asin, title, price, rating, reviewCount });
+        }
+
+        if (results.length >= 20) break;
+      }
+
+      return results;
+    });
+
+    products.push(...items.map((item) => ({ ...item, category: "YouTube Lead", bsr: 50000 })));
+    console.log(`[Researcher] Found ${products.length} results for "${keyword}"`);
+  } catch (err) {
+    console.error(`[Researcher] Error searching for "${keyword}":`, err.message);
+  } finally {
+    await page.close();
+  }
+
+  return products;
+}
+
+/**
+ * Search Amazon for YouTube-sourced product keywords and return scored leads.
+ * @param {string[]} keywords
+ * @param {number} maxLeads
+ * @returns {Array} scored product leads
+ */
+export async function searchByKeywords(keywords, maxLeads = 20) {
+  console.log(`[Researcher] Searching Amazon for ${keywords.length} YouTube-sourced keywords...`);
+  let browser;
+  const allProducts = [];
+
+  try {
+    browser = await launchBrowser();
+
+    // Cap at 10 keywords to avoid bans + stay within time budget
+    const batch = keywords.slice(0, 10);
+
+    for (let i = 0; i < batch.length; i++) {
+      try {
+        const products = await searchByKeyword(batch[i], browser);
+        allProducts.push(...products);
+      } catch (err) {
+        console.error(`[Researcher] Search failed for "${batch[i]}":`, err.message);
+      }
+      if (i < batch.length - 1) await randomDelay(1500, 3000);
+    }
+
+    const candidates = allProducts.filter(
+      (p) => p.price >= 10 && p.price <= 120 && p.reviewCount <= 3000
+    );
+
+    console.log(`[Researcher] YouTube candidates after filter: ${candidates.length}`);
+
+    const detailBatch = candidates
+      .sort((a, b) => a.reviewCount - b.reviewCount)
+      .slice(0, 20);
+
+    const enriched = [];
+
+    for (let i = 0; i < detailBatch.length; i++) {
+      const product = detailBatch[i];
+      try {
+        const details = await scrapeProductDetails(product.asin, browser);
+        const bsr = details.fullBSR > 0 ? details.fullBSR : 50000;
+        const weightLbs = details.weightLbs || 1.0;
+        const cogsRate = 0.25 + Math.random() * 0.05;
+        const estimatedCOGS = parseFloat((product.price * cogsRate).toFixed(2));
+
+        const { profit, margin, roi, totalFees } = calculateMargin(
+          product.price,
+          estimatedCOGS,
+          weightLbs,
+          "Home & Kitchen" // use default referral rate
+        );
+
+        const estimatedMonthlySales = bsrToMonthlySales(bsr);
+        const opportunityScore = scoreProduct({
+          price: product.price,
+          reviewCount: product.reviewCount,
+          rating: product.rating,
+          bsr,
+          margin,
+        });
+
+        enriched.push({
+          ...product,
+          bsr,
+          weightLbs,
+          dimensions: details.dimensions,
+          estimatedCOGS,
+          fbaFees: totalFees,
+          estimatedProfit: profit,
+          estimatedMonthlySales,
+          estimatedMonthlyRevenue: parseFloat((estimatedMonthlySales * product.price).toFixed(2)),
+          margin,
+          roi,
+          opportunityScore,
+          source: "youtube",
+        });
+      } catch (err) {
+        console.error(`[Researcher] Error enriching YouTube lead ${product.asin}:`, err.message);
+      }
+      if (i < detailBatch.length - 1) await randomDelay(1000, 2000);
+    }
+
+    const leads = enriched
+      .filter((p) => p.opportunityScore >= 50 && p.margin >= 25)
+      .sort((a, b) => b.opportunityScore - a.opportunityScore)
+      .slice(0, maxLeads);
+
+    console.log(`[Researcher] YouTube leads after scoring: ${leads.length}`);
+    return leads;
+  } catch (err) {
+    console.error("[Researcher] Fatal error in searchByKeywords:", err.message);
+    return [];
+  } finally {
+    if (browser) {
+      try {
+        await browser.close();
+      } catch {}
+    }
+  }
+}
+
+/**
  * Main entry point — find FBA product leads.
  * @param {number} maxLeads - Maximum number of leads to return
  * @returns {Array} scored product leads
