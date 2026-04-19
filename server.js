@@ -27,6 +27,7 @@ const moduleStatus = {
   supplier_outreach: "pending",
   review_requester: "pending",
   repricing: "pending",
+  validation_engine: "pending",
 };
 
 // ─── Run History ─────────────────────────────────────────────────────────────
@@ -115,6 +116,10 @@ async function getEmailAlerts() {
 
 async function getYouTubeScraper() {
   return loadModule("youtube_scraper", () => import("./youtube_scraper.js"));
+}
+
+async function getValidationEngine() {
+  return loadModule("validation_engine", () => import("./validation_engine.js"));
 }
 
 async function getPPCManager() {
@@ -268,6 +273,43 @@ async function runResearch() {
         console.log(`[Research] DRY RUN — skipping listing write for ${lead.asin}`);
       }
 
+      // ── Pre-PPC Validation (free checks before spending $49) ──
+      let preValidation = null;
+      try {
+        const validationEngine = await getValidationEngine();
+        const { default: puppeteerExtra } = await import("puppeteer-extra");
+        const { default: StealthPlugin } = await import("puppeteer-extra-plugin-stealth");
+        puppeteerExtra.use(StealthPlugin());
+        const execPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+        const validationBrowser = await puppeteerExtra.launch({
+          headless: true,
+          args: ["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--single-process","--no-zygote","--disable-gpu"],
+          ...(execPath ? { executablePath: execPath } : {}),
+        });
+
+        try {
+          preValidation = await validationEngine.runPreValidation(lead, validationBrowser);
+        } finally {
+          await validationBrowser.close().catch(() => {});
+        }
+
+        if (!preValidation.passed) {
+          console.log(`[Research] SKIPPED ${lead.asin} — failed pre-validation: ${preValidation.reason}`);
+          dbMod.addOpportunity(db, {
+            ...lead,
+            status: "passed",
+            validationStatus: "pre_failed",
+            validationReason: preValidation.reason,
+          });
+          continue;
+        }
+
+        console.log(`[Research] ${lead.asin} passed pre-validation (score: ${preValidation.score}/100) — proceeding`);
+      } catch (err) {
+        console.error(`[Research] Pre-validation error for ${lead.asin}:`, err.message);
+        // Don't skip on error — let it through
+      }
+
       // Generate a SKU for this product
       const sku = `FBA-${lead.asin}-${Date.now()}`;
 
@@ -320,6 +362,7 @@ async function runResearch() {
         validationStatus: validationCampaignId ? "validating" : null,
         validationCampaignId,
         validationStartedAt: validationCampaignId ? new Date().toISOString() : null,
+        preValidation,
         status: validationCampaignId ? "validating" : "researching",
       };
 
@@ -377,7 +420,10 @@ async function runValidationCheck() {
       }
 
       const metrics = await ppc.getCampaignMetrics(product.validationCampaignId);
-      const { passed: didPass, reason } = ppc.evaluateValidation(metrics);
+      const validationEngine = await getValidationEngine();
+      const preValidation = product.preValidation || null;
+      const { passed: didPass, reason, confidence } = validationEngine.runPostValidation(preValidation, metrics);
+      const seasonalWarning = validationEngine.getSeasonalWarning(product);
 
       dbMod.updateOpportunity(db, product.asin, {
         validationStatus: didPass ? "passed" : "failed",
@@ -387,7 +433,7 @@ async function runValidationCheck() {
       });
 
       if (didPass) {
-        passed.push({ ...product, validationMetrics: metrics, validationReason: reason });
+        passed.push({ ...product, validationMetrics: metrics, validationReason: reason, confidence, seasonalWarning });
 
         // Auto-contact suppliers
         if (!DRY_RUN) {
