@@ -2,6 +2,7 @@
 
 import axios from "axios";
 import { getSpApiToken, hasSpApiCredentials } from "./amazon_auth.js";
+export { hasSpApiCredentials };
 
 const SP_API_BASE = "https://sellingpartnerapi-na.amazon.com";
 const MARKETPLACE_ID = process.env.SP_API_MARKETPLACE_ID || "ATVPDKIKX0DER"; // US default

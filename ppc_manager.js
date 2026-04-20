@@ -2,6 +2,7 @@
 
 import axios from "axios";
 import { getAdsToken, hasAdsCredentials } from "./amazon_auth.js";
+export { hasAdsCredentials };
 
 const ADS_BASE = "https://advertising-api.amazon.com";
 const ADS_PROFILE_ID = process.env.AMAZON_ADS_PROFILE_ID;
