@@ -367,6 +367,7 @@ export async function createReport(reportType, days = 30) {
       marketplaceIds: [MARKETPLACE_ID],
     },
   });
+  if (!res.reportId) throw new Error(`SP-API createReport returned no reportId: ${JSON.stringify(res)}`);
   return res.reportId;
 }
 

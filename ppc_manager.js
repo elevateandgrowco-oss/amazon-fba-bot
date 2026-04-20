@@ -51,7 +51,7 @@ export async function createValidationCampaign(product) {
     .replace(/-/g, "");
 
   // Create campaign
-  const [campaign] = await adsRequest({
+  const campaignRes = await adsRequest({
     method: "POST",
     path: "/v2/sp/campaigns",
     data: [
@@ -68,10 +68,12 @@ export async function createValidationCampaign(product) {
     ],
   });
 
-  const campaignId = campaign.campaignId;
+  const campaign = Array.isArray(campaignRes) ? campaignRes[0] : campaignRes;
+  const campaignId = campaign?.campaignId;
+  if (!campaignId) throw new Error(`Failed to create validation campaign: ${campaign?.description || JSON.stringify(campaign)}`);
 
   // Create ad group
-  const [adGroup] = await adsRequest({
+  const adGroupRes = await adsRequest({
     method: "POST",
     path: "/v2/sp/adGroups",
     data: [
@@ -84,7 +86,9 @@ export async function createValidationCampaign(product) {
     ],
   });
 
-  const adGroupId = adGroup.adGroupId;
+  const adGroup = Array.isArray(adGroupRes) ? adGroupRes[0] : adGroupRes;
+  const adGroupId = adGroup?.adGroupId;
+  if (!adGroupId) throw new Error(`Failed to create validation ad group: ${adGroup?.description || JSON.stringify(adGroup)}`);
 
   // Add product ad
   await adsRequest({
@@ -211,7 +215,7 @@ export function evaluateValidation(metrics) {
 export async function createLaunchCampaign(product) {
   console.log(`[PPC] Creating launch campaign for: ${product.title?.slice(0, 40)}`);
 
-  const [campaign] = await adsRequest({
+  const launchCampaignRes = await adsRequest({
     method: "POST",
     path: "/v2/sp/campaigns",
     data: [
@@ -227,9 +231,11 @@ export async function createLaunchCampaign(product) {
     ],
   });
 
-  const campaignId = campaign.campaignId;
+  const launchCampaign = Array.isArray(launchCampaignRes) ? launchCampaignRes[0] : launchCampaignRes;
+  const campaignId = launchCampaign?.campaignId;
+  if (!campaignId) throw new Error(`Failed to create launch campaign: ${launchCampaign?.description || JSON.stringify(launchCampaign)}`);
 
-  const [adGroup] = await adsRequest({
+  const launchAdGroupRes = await adsRequest({
     method: "POST",
     path: "/v2/sp/adGroups",
     data: [
@@ -242,10 +248,13 @@ export async function createLaunchCampaign(product) {
     ],
   });
 
+  const launchAdGroup = Array.isArray(launchAdGroupRes) ? launchAdGroupRes[0] : launchAdGroupRes;
+  if (!launchAdGroup?.adGroupId) throw new Error(`Failed to create launch ad group: ${launchAdGroup?.description || JSON.stringify(launchAdGroup)}`);
+
   await adsRequest({
     method: "POST",
     path: "/v2/sp/productAds",
-    data: [{ campaignId, adGroupId: adGroup.adGroupId, sku: product.sku, state: "enabled" }],
+    data: [{ campaignId, adGroupId: launchAdGroup.adGroupId, sku: product.sku, state: "enabled" }],
   });
 
   // Add all keywords with appropriate match types
@@ -253,7 +262,7 @@ export async function createLaunchCampaign(product) {
     const text = typeof kw === "string" ? kw : kw.keyword;
     return ["exact", "broad"].map((matchType) => ({
       campaignId,
-      adGroupId: adGroup.adGroupId,
+      adGroupId: launchAdGroup.adGroupId,
       keywordText: text,
       matchType,
       bid: matchType === "exact" ? 1.2 : 0.8,
