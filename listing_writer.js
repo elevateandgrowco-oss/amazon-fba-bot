@@ -125,53 +125,64 @@ Return ONLY valid JSON in this exact format (no markdown, no explanation):
 
   console.log(`[Listing] Writing listing for: "${title.slice(0, 60)}"`);
 
-  try {
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 3000,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const rawText = message.content?.[0]?.text || "{}";
-    const cleanedJSON = parseJSON(rawText);
-
-    let listing;
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) {
+      console.log(`[Listing] Retrying Claude API (attempt ${attempt + 1})...`);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
     try {
-      listing = JSON.parse(cleanedJSON);
-    } catch (parseErr) {
-      console.error("[Listing] Failed to parse Claude response as JSON:", parseErr.message);
-      console.error("[Listing] Raw response snippet:", rawText.slice(0, 300));
-      return buildFallbackListing(product, keywords);
+      const message = await client.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 3000,
+        messages: [{ role: "user", content: prompt }],
+      });
+
+      const rawText = message.content?.[0]?.text || "{}";
+      const cleanedJSON = parseJSON(rawText);
+
+      let listing;
+      try {
+        listing = JSON.parse(cleanedJSON);
+      } catch (parseErr) {
+        console.error("[Listing] Failed to parse Claude response as JSON:", parseErr.message);
+        console.error("[Listing] Raw response snippet:", rawText.slice(0, 300));
+        lastErr = parseErr;
+        continue; // retry
+      }
+
+      // Validate and truncate fields to Amazon limits
+      if (!listing.title) listing.title = title.slice(0, 200);
+      else listing.title = listing.title.slice(0, 200);
+
+      if (!Array.isArray(listing.bullets) || listing.bullets.length < 5) {
+        listing.bullets = buildFallbackBullets(product);
+      } else {
+        listing.bullets = listing.bullets.slice(0, 5).map((b) => b.slice(0, 200));
+      }
+
+      if (!listing.description) listing.description = "";
+      else listing.description = listing.description.slice(0, 1000);
+
+      if (!listing.backendKeywords) {
+        listing.backendKeywords = keywordData?.backendKeywords || "";
+      }
+      listing.backendKeywords = listing.backendKeywords.slice(0, 249);
+
+      if (!listing.suggestedPrice || listing.suggestedPrice <= 0) {
+        listing.suggestedPrice = Math.round(price * 0.95 * 100) / 100;
+      }
+
+      console.log(`[Listing] Successfully wrote listing — title: "${listing.title.slice(0, 60)}..."`);
+      return listing;
+    } catch (err) {
+      lastErr = err;
+      console.error(`[Listing] Claude API error (attempt ${attempt + 1}):`, err.message);
     }
-
-    // Validate and truncate fields to Amazon limits
-    if (!listing.title) listing.title = title.slice(0, 200);
-    else listing.title = listing.title.slice(0, 200);
-
-    if (!Array.isArray(listing.bullets) || listing.bullets.length < 5) {
-      listing.bullets = buildFallbackBullets(product);
-    } else {
-      listing.bullets = listing.bullets.slice(0, 5).map((b) => b.slice(0, 200));
-    }
-
-    if (!listing.description) listing.description = "";
-    else listing.description = listing.description.slice(0, 1000);
-
-    if (!listing.backendKeywords) {
-      listing.backendKeywords = keywordData?.backendKeywords || "";
-    }
-    listing.backendKeywords = listing.backendKeywords.slice(0, 249);
-
-    if (!listing.suggestedPrice || listing.suggestedPrice <= 0) {
-      listing.suggestedPrice = Math.round(price * 0.95 * 100) / 100;
-    }
-
-    console.log(`[Listing] Successfully wrote listing — title: "${listing.title.slice(0, 60)}..."`);
-    return listing;
-  } catch (err) {
-    console.error("[Listing] Claude API error:", err.message);
-    return buildFallbackListing(product, keywords);
   }
+
+  console.error("[Listing] All attempts failed — using fallback listing");
+  return buildFallbackListing(product, keywords);
 }
 
 /**

@@ -64,8 +64,9 @@ async function scrapeProductStatus(asin, browser) {
     await sleep(1200);
 
     // Check for CAPTCHA
-    const captcha = await page.$("#captchacharacters").catch(() => null);
-    if (captcha) {
+    const captcha = await page.$("#captchacharacters");
+    const pageTitle = await page.title().catch(() => "");
+    if (captcha || pageTitle.toLowerCase().includes("robot") || pageTitle.toLowerCase().includes("captcha")) {
       console.warn(`[Tracker] CAPTCHA on ${asin} — skipping`);
       await page.close();
       return null;

@@ -40,7 +40,7 @@ async function fetchAutocompleteSuggestions(prefix) {
       `&limit=11` +
       `&fb=1` +
       `&suggestion-type=KEYWORD` +
-      `&_=1704000000000`;
+      `&_=${Date.now()}`;
 
     const response = await axios.get(url, {
       timeout: 8000,
