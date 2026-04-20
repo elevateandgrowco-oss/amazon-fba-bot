@@ -60,7 +60,7 @@ async function sendReturnAlert(highReturnProducts) {
     .join("");
 
   await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL || "bot@yourdomain.com",
+    from: process.env.FROM_EMAIL || "bot@yourdomain.com",
     to: process.env.ALERT_EMAIL,
     subject: `High Return Rate Alert — ${highReturnProducts.length} Product${highReturnProducts.length > 1 ? "s" : ""} Need Attention`,
     html: `

@@ -57,7 +57,7 @@ async function sendLaunchEmail(product, action, launchPrice, targetPrice) {
   const isStart = action === "start";
 
   await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL || "bot@yourdomain.com",
+    from: process.env.FROM_EMAIL || "bot@yourdomain.com",
     to: process.env.ALERT_EMAIL,
     subject: isStart
       ? `Launch Price Activated — ${product.title?.slice(0, 40)}`

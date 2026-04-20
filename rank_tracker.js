@@ -116,7 +116,7 @@ async function sendRankAlert(drops) {
     .join("");
 
   await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL || "bot@yourdomain.com",
+    from: process.env.FROM_EMAIL || "bot@yourdomain.com",
     to: process.env.ALERT_EMAIL,
     subject: `Keyword Rank Drop Alert — ${drops.length} keyword${drops.length > 1 ? "s" : ""} slipping`,
     html: `

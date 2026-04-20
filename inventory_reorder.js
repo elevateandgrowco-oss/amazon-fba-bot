@@ -44,7 +44,7 @@ function buildReorderEmail(product, units, supplierEmail) {
   const companyName = process.env.COMPANY_NAME || "Our Company";
 
   return {
-    from: process.env.RESEND_FROM_EMAIL || "bot@yourdomain.com",
+    from: process.env.FROM_EMAIL || "bot@yourdomain.com",
     to: supplierEmail,
     subject: `Purchase Order — ${product.title?.slice(0, 50)} (Reorder)`,
     html: `

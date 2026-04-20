@@ -37,7 +37,7 @@ async function sendSuppressionAlert(suppressed) {
     .join("");
 
   await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL || "bot@yourdomain.com",
+    from: process.env.FROM_EMAIL || "bot@yourdomain.com",
     to: process.env.ALERT_EMAIL,
     subject: `URGENT: ${suppressed.length} Listing${suppressed.length > 1 ? "s" : ""} Suppressed — You're Not Selling`,
     html: `

@@ -129,7 +129,7 @@ async function sendHealthAlert(metrics, evaluation) {
     .join("");
 
   await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL || "bot@yourdomain.com",
+    from: process.env.FROM_EMAIL || "bot@yourdomain.com",
     to: process.env.ALERT_EMAIL,
     subject,
     html: `

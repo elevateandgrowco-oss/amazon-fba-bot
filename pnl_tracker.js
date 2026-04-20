@@ -153,7 +153,7 @@ async function sendPnLReport(results) {
     .join("");
 
   await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL || "bot@yourdomain.com",
+    from: process.env.FROM_EMAIL || "bot@yourdomain.com",
     to: process.env.ALERT_EMAIL,
     subject: `Weekly P&L Report — $${totalProfit.toFixed(2)} profit on $${totalRevenue.toFixed(2)} revenue`,
     html: `

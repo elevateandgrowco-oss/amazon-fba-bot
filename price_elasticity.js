@@ -87,7 +87,7 @@ async function sendElasticityReport(results) {
     `).join("");
 
   await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL || "bot@yourdomain.com",
+    from: process.env.FROM_EMAIL || "bot@yourdomain.com",
     to: process.env.ALERT_EMAIL,
     subject: `Price Optimization: ${results.length} product${results.length > 1 ? "s" : ""} updated for higher profit`,
     html: `
