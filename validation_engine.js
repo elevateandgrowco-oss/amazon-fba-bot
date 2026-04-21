@@ -23,7 +23,7 @@ const PPC_MIN_CVR = 0.07;        // 7% conversion rate
 const PPC_MIN_SALES = 3;         // At least 3 actual purchases
 const PPC_MAX_ACOS = 0.35;       // ACoS under 35%
 
-const PRE_VALIDATION_MIN = 65;   // Must score ≥ 65/100 before PPC test
+const PRE_VALIDATION_MIN = 60;   // Must score ≥ 60/100 before PPC test
 const FINAL_VALIDATION_MIN = 75; // Must score ≥ 75/100 after PPC test
 
 function sleep(ms) {
@@ -214,8 +214,16 @@ export async function checkCompetitionDepth(keyword, browser) {
 
     const top10 = data.results.slice(0, 10);
     signal.totalResults = data.total;
-    signal.avgTopReviews =
-      top10.length > 0 ? Math.round(top10.reduce((s, p) => s + p.reviews, 0) / top10.length) : 0;
+
+    // If no results scraped (bot detection / empty page), return neutral score
+    if (top10.length === 0) {
+      signal.label = "no data";
+      signal.score = 15;
+      console.log(`[Validation] Competition for "${keyword}": no data (scrape returned 0 results — neutral score)`);
+      return signal;
+    }
+
+    signal.avgTopReviews = Math.round(top10.reduce((s, p) => s + p.reviews, 0) / top10.length);
     signal.weakCompetitors = top10.filter((p) => p.reviews < 200).length;
     signal.avgPrice =
       top10.filter((p) => p.price > 0).length > 0
