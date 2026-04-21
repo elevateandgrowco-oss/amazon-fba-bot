@@ -34,21 +34,33 @@ async function refreshToken({ clientId, clientSecret, refreshToken, cacheKey }) 
     return cache.accessToken;
   }
 
-  const res = await axios.post(
-    LWA_TOKEN_URL,
-    new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-      client_id: clientId,
-      client_secret: clientSecret,
-    }),
-    { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-  );
+  try {
+    const res = await axios.post(
+      LWA_TOKEN_URL,
+      new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
 
-  cache.accessToken = res.data.access_token;
-  cache.expiresAt = Date.now() + res.data.expires_in * 1000;
+    cache.accessToken = res.data.access_token;
+    cache.expiresAt = Date.now() + res.data.expires_in * 1000;
 
-  return cache.accessToken;
+    return cache.accessToken;
+  } catch (err) {
+    const lwaError = err.response?.data;
+    if (lwaError?.error === "invalid_grant") {
+      throw new Error(
+        `[Auth] SP-API refresh token is invalid or expired — regenerate it in Seller Central → Apps → Manage Your Apps. LWA error: ${JSON.stringify(lwaError)}`
+      );
+    }
+    throw new Error(
+      `[Auth] LWA token refresh failed (${err.response?.status ?? "network"}): ${JSON.stringify(lwaError ?? err.message)}`
+    );
+  }
 }
 
 export async function getSpApiToken() {

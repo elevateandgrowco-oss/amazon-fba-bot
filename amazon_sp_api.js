@@ -8,6 +8,19 @@ const SP_API_BASE = "https://sellingpartnerapi-na.amazon.com";
 const MARKETPLACE_ID = process.env.SP_API_MARKETPLACE_ID || "ATVPDKIKX0DER"; // US default
 const SELLER_ID = process.env.SP_API_SELLER_ID;
 
+// Amazon SP-API requires array params as repeated keys (not key[]=val)
+function serializeParams(params) {
+  const parts = [];
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) {
+      for (const v of value) parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`);
+    } else if (value !== undefined && value !== null) {
+      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+    }
+  }
+  return parts.join("&");
+}
+
 async function spRequest({ method = "GET", path, params = {}, data = null }) {
   if (!hasSpApiCredentials()) {
     throw new Error("SP-API credentials not configured");
@@ -23,6 +36,7 @@ async function spRequest({ method = "GET", path, params = {}, data = null }) {
       "Content-Type": "application/json",
     },
     params,
+    paramsSerializer: { serialize: serializeParams },
     data,
     timeout: 15000,
   });
@@ -164,7 +178,7 @@ export async function getRecentOrders(days = 7) {
     params: {
       MarketplaceIds: MARKETPLACE_ID,
       CreatedAfter: createdAfter,
-      OrderStatuses: "Unshipped,PartiallyShipped,Shipped,Delivered,InvoiceUnconfirmed",
+      OrderStatuses: ["Unshipped", "PartiallyShipped", "Shipped", "Delivered", "InvoiceUnconfirmed"],
     },
   });
   return res.payload?.Orders || [];
