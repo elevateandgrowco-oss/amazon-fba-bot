@@ -1,7 +1,8 @@
 // hijacker_monitor.js — Detect unauthorized sellers on your listings and buy box loss
 
 import { Resend } from "resend";
-import { getItemOffers, hasSpApiCredentials } from "./amazon_sp_api.js";
+import { getItemOffers } from "./amazon_sp_api.js";
+import { hasSpApiCredentials } from "./amazon_auth.js";
 import { loadDB, saveDB } from "./products_db.js";
 
 const resend = new Resend(process.env.RESEND_API_KEY);

@@ -2,7 +2,8 @@
 // Lower price for first 14 days drives early sales → Amazon ranks you higher → organic sales for life
 
 import { Resend } from "resend";
-import { updatePrice, hasSpApiCredentials } from "./amazon_sp_api.js";
+import { updatePrice } from "./amazon_sp_api.js";
+import { hasSpApiCredentials } from "./amazon_auth.js";
 import { calculateMargin } from "./fee_calculator.js";
 import { loadDB, saveDB } from "./products_db.js";
 

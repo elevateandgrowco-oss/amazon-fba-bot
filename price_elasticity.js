@@ -1,7 +1,8 @@
 // price_elasticity.js — Automatically test price points to find the most profitable price
 
 import { Resend } from "resend";
-import { updatePrice, getSalesTrafficReport, hasSpApiCredentials } from "./amazon_sp_api.js";
+import { updatePrice, getSalesTrafficReport } from "./amazon_sp_api.js";
+import { hasSpApiCredentials } from "./amazon_auth.js";
 import { calculateMargin } from "./fee_calculator.js";
 import { loadDB, saveDB } from "./products_db.js";
 

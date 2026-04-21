@@ -1,7 +1,8 @@
 // pnl_tracker.js — Real profit & loss per product: revenue - COGS - FBA fees - PPC spend - storage
 
 import { Resend } from "resend";
-import { getSalesData, hasSpApiCredentials } from "./amazon_sp_api.js";
+import { getSalesData } from "./amazon_sp_api.js";
+import { hasSpApiCredentials } from "./amazon_auth.js";
 import { getCampaignMetrics, hasAdsCredentials } from "./ppc_manager.js";
 import { calculateFBAFees } from "./fee_calculator.js";
 import { loadDB, saveDB } from "./products_db.js";

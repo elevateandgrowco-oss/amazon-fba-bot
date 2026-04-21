@@ -1,7 +1,8 @@
 // return_monitor.js — Track FBA return rates and alert on high-return products
 
 import { Resend } from "resend";
-import { createReport, waitForReport, downloadReport, hasSpApiCredentials } from "./amazon_sp_api.js";
+import { createReport, waitForReport, downloadReport } from "./amazon_sp_api.js";
+import { hasSpApiCredentials } from "./amazon_auth.js";
 import { loadDB, saveDB } from "./products_db.js";
 
 const resend = new Resend(process.env.RESEND_API_KEY);

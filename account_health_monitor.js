@@ -1,7 +1,8 @@
 // account_health_monitor.js — Track seller account health metrics and alert before suspension
 
 import { Resend } from "resend";
-import { getRecentOrders, hasSpApiCredentials } from "./amazon_sp_api.js";
+import { getRecentOrders } from "./amazon_sp_api.js";
+import { hasSpApiCredentials } from "./amazon_auth.js";
 import { loadDB, saveDB } from "./products_db.js";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
