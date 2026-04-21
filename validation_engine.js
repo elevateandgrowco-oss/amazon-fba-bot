@@ -39,7 +39,15 @@ function sleep(ms) {
 export async function checkGoogleTrends(keyword) {
   const signal = { score: 0, label: "unknown", seasonal: false, raw: null };
 
-  try {
+  // Retry up to 3 times on 429 with exponential backoff
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const delay = attempt * 4000; // 4s, 8s
+      console.log(`[Validation] Google Trends 429 — retrying in ${delay / 1000}s (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      await sleep(delay);
+    }
+    try {
     const req = JSON.stringify({
       comparisonItem: [{ keyword, geo: "US", time: "today 5-y" }],
       category: 0,
@@ -65,6 +73,9 @@ export async function checkGoogleTrends(keyword) {
       signal.score = 10; // neutral
       return signal;
     }
+
+    // Small pause between the two Trends requests to avoid triggering rate limits
+    await sleep(1500);
 
     // Fetch the actual timeline data
     const timelineRes = await axios.get("https://trends.google.com/trends/api/widgetdata/multiline", {
@@ -130,10 +141,17 @@ export async function checkGoogleTrends(keyword) {
     }
 
     console.log(`[Validation] Google Trends "${keyword}": ${signal.label} (growth: ${(growthRate * 100).toFixed(1)}%, seasonal: ${signal.seasonal})`);
-  } catch (err) {
-    console.error(`[Validation] Google Trends error for "${keyword}":`, err.message);
-    signal.label = "error";
-    signal.score = 10; // neutral on error — don't penalize for API issues
+    return signal; // success — exit retry loop
+    } catch (err) {
+      const is429 = err.response?.status === 429 || err.message?.includes("429");
+      if (is429 && attempt < MAX_RETRIES - 1) {
+        continue; // retry
+      }
+      console.error(`[Validation] Google Trends error for "${keyword}":`, err.message);
+      signal.label = "error";
+      signal.score = 10; // neutral on error — don't penalize for API issues
+      return signal;
+    }
   }
 
   return signal;
