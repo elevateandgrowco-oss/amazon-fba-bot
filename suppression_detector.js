@@ -1,7 +1,8 @@
 // suppression_detector.js — Detect suppressed/inactive listings before they cost you sales
 
 import { Resend } from "resend";
-import { getListingStatus, hasSpApiCredentials } from "./amazon_sp_api.js";
+import { getListingStatus } from "./amazon_sp_api.js";
+import { hasSpApiCredentials } from "./amazon_auth.js";
 import { loadDB, saveDB } from "./products_db.js";
 
 const resend = new Resend(process.env.RESEND_API_KEY);

@@ -164,7 +164,7 @@ export async function getRecentOrders(days = 7) {
     params: {
       MarketplaceIds: MARKETPLACE_ID,
       CreatedAfter: createdAfter,
-      OrderStatuses: "Shipped,Delivered",
+      OrderStatuses: "Unshipped,PartiallyShipped,Shipped,Delivered,InvoiceUnconfirmed",
     },
   });
   return res.payload?.Orders || [];
