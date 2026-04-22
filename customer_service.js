@@ -60,7 +60,13 @@ export async function handleBuyerMessages(dryRun = false) {
   const db = loadDB();
   const repliedMessageIds = new Set(db.repliedMessageIds || []);
 
-  const orders = await getRecentOrders(30);
+  let orders = [];
+  try {
+    orders = await getRecentOrders(30);
+  } catch (err) {
+    console.log(`[CS] Could not fetch orders (${err.message}) — skipping customer service`);
+    return [];
+  }
   console.log(`[CS] Checking ${orders.length} recent orders for messages`);
 
   const replied = [];
