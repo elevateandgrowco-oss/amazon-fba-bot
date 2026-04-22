@@ -39,11 +39,11 @@ function sleep(ms) {
 export async function checkGoogleTrends(keyword) {
   const signal = { score: 0, label: "unknown", seasonal: false, raw: null };
 
-  // Retry up to 3 times on 429 with exponential backoff
-  const MAX_RETRIES = 3;
+  // Retry once on 429 — cloud IPs are often permanently rate-limited, more retries waste time
+  const MAX_RETRIES = 2;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     if (attempt > 0) {
-      const delay = attempt * 4000; // 4s, 8s
+      const delay = 6000; // 6s
       console.log(`[Validation] Google Trends 429 — retrying in ${delay / 1000}s (attempt ${attempt + 1}/${MAX_RETRIES})`);
       await sleep(delay);
     }
@@ -312,8 +312,10 @@ export async function checkReviewVelocity(asin, browser) {
       .filter((d) => d && !isNaN(d.getTime()));
 
     if (parsedDates.length === 0) {
+      // Could be bot detection (Railway IPs get blocked by Amazon) or a genuinely new product
+      // Use neutral score rather than penalizing — we can't distinguish the two cases
       signal.label = "no reviews";
-      signal.score = 5;
+      signal.score = 8;
       return signal;
     }
 
@@ -481,7 +483,15 @@ export async function checkDemandScore(keyword) {
  * @returns {{ score, signals, passed, reason }}
  */
 export async function runPreValidation(product, browser) {
-  const keyword = product.title?.split(/[,|(]/)[0].trim() || product.title || "";
+  // Use pre-researched keywords if available (first keyword is best/most relevant)
+  // Otherwise extract from title: split on common Amazon separators, take first segment, limit to 3 words
+  let keyword;
+  if (product.keywords?.length > 0) {
+    keyword = product.keywords[0];
+  } else {
+    const firstSegment = (product.title || "").split(/\s*[-–—,|(]/)[0].trim();
+    keyword = firstSegment.split(" ").slice(0, 3).join(" ");
+  }
   const asin = product.asin;
 
   console.log(`[Validation] Running pre-PPC validation for "${keyword}" (${asin})...`);

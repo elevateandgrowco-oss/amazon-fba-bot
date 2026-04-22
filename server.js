@@ -385,7 +385,10 @@ async function runResearch() {
         });
 
         try {
-          preValidation = await validationEngine.runPreValidation(lead, validationBrowser);
+          preValidation = await validationEngine.runPreValidation(
+            { ...lead, keywords: keywordData.keywords },
+            validationBrowser
+          );
         } finally {
           await validationBrowser.close().catch(() => {});
         }
