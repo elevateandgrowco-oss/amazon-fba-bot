@@ -1,6 +1,7 @@
 // product_researcher.js — Scrapes Amazon Best Sellers, scores FBA opportunities
 
 import { calculateFBAFees, calculateMargin, bsrToMonthlySales, scoreProduct } from "./fee_calculator.js";
+import { filterBranded } from "./brand_filter.js";
 
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -438,11 +439,12 @@ export async function findLeads(maxLeads = 20) {
     console.log(`[Researcher] Total raw products scraped: ${allProducts.length}`);
 
     // Filter to candidates worth researching further
-    const candidates = allProducts.filter((p) => {
+    const priceFiltered = allProducts.filter((p) => {
       if (p.price < 10 || p.price > 120) return false;
       if (p.reviewCount > 3000) return false;
       return true;
     });
+    const candidates = filterBranded(priceFiltered);
 
     console.log(`[Researcher] Candidates after initial filter: ${candidates.length}`);
 

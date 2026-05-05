@@ -5,7 +5,6 @@ import { getAdsToken, hasAdsCredentials } from "./amazon_auth.js";
 export { hasAdsCredentials };
 
 const ADS_BASE = "https://advertising-api.amazon.com";
-const ADS_PROFILE_ID = process.env.AMAZON_ADS_PROFILE_ID;
 
 // Validation campaign settings
 const VALIDATION_BUDGET_PER_DAY = 7;  // $7/day x 7 days = $49 max test spend
@@ -13,12 +12,45 @@ const VALIDATION_DAYS = 7;
 const VALIDATION_MIN_CLICKS = 50;
 const VALIDATION_MIN_CONVERSION_RATE = 0.05; // 5%
 
+// Cache resolved profile ID so we only fetch it once per process
+let _resolvedProfileId = process.env.AMAZON_ADS_PROFILE_ID || null;
+
+/**
+ * Resolve the US profile ID. Uses env var if set, otherwise fetches from API
+ * and caches it for the rest of the process lifetime.
+ */
+async function getProfileId() {
+  if (_resolvedProfileId) return _resolvedProfileId;
+
+  const token = await getAdsToken();
+  const res = await axios.get(`${ADS_BASE}/v2/profiles`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Amazon-Advertising-API-ClientId": process.env.AMAZON_ADS_CLIENT_ID,
+    },
+    timeout: 10000,
+  });
+
+  const profiles = res.data || [];
+  // Prefer US marketplace profile
+  const us = profiles.find(
+    (p) => p.countryCode === "US" && p.accountInfo?.type === "seller"
+  ) || profiles[0];
+
+  if (!us) throw new Error("[PPC] No advertising profiles found for this account");
+
+  _resolvedProfileId = String(us.profileId);
+  console.log(`[PPC] Resolved Ads profile ID: ${_resolvedProfileId} (${us.countryCode})`);
+  return _resolvedProfileId;
+}
+
 async function adsRequest({ method = "GET", path, data = null }) {
   if (!hasAdsCredentials()) {
     throw new Error("Amazon Ads API credentials not configured");
   }
 
   const token = await getAdsToken();
+  const profileId = await getProfileId();
 
   const res = await axios({
     method,
@@ -26,7 +58,7 @@ async function adsRequest({ method = "GET", path, data = null }) {
     headers: {
       Authorization: `Bearer ${token}`,
       "Amazon-Advertising-API-ClientId": process.env.AMAZON_ADS_CLIENT_ID,
-      "Amazon-Advertising-API-Scope": ADS_PROFILE_ID,
+      "Amazon-Advertising-API-Scope": profileId,
       "Content-Type": "application/json",
     },
     data,

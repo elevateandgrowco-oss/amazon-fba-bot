@@ -18,13 +18,14 @@ const WEIGHTS = {
 };
 
 // Stage 2 thresholds (post-PPC)
-const PPC_MIN_CLICKS = 80;
-const PPC_MIN_CVR = 0.07;        // 7% conversion rate
-const PPC_MIN_SALES = 3;         // At least 3 actual purchases
-const PPC_MAX_ACOS = 0.35;       // ACoS under 35%
+const PPC_MIN_CLICKS = 100;      // Raised: need 100+ clicks for reliable data
+const PPC_MIN_CVR = 0.08;        // Raised: 8% conversion rate (was 7%)
+const PPC_MIN_SALES = 5;         // Raised: at least 5 actual purchases (was 3)
+const PPC_MAX_ACOS = 0.30;       // Tightened: ACoS under 30% (was 35%)
 
-const PRE_VALIDATION_MIN = 60;   // Must score ≥ 60/100 before PPC test
-const FINAL_VALIDATION_MIN = 75; // Must score ≥ 75/100 after PPC test
+const PRE_VALIDATION_MIN = 70;   // Raised: must score ≥ 70/100 before spending on PPC (was 60)
+const FINAL_VALIDATION_MIN = 80; // Raised: must score ≥ 80/100 after PPC test (was 75)
+const MIN_POSITIVE_SIGNALS = 2;  // At least 2 signals must be clearly positive (not just neutral)
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -315,7 +316,7 @@ export async function checkReviewVelocity(asin, browser) {
       // Could be bot detection (Railway IPs get blocked by Amazon) or a genuinely new product
       // Use neutral score rather than penalizing — we can't distinguish the two cases
       signal.label = "no reviews";
-      signal.score = 8;
+      signal.score = 11;
       return signal;
     }
 
@@ -521,7 +522,36 @@ export async function runPreValidation(product, browser) {
     signals.priceStability.score +
     signals.demand.score;
 
-  const passed = totalScore >= PRE_VALIDATION_MIN;
+  // Detect IP blocking: if 2+ browser-scraped signals errored, Railway's IP is likely
+  // blocked by Amazon. Lower the threshold slightly rather than killing valid products.
+  const blockedSignals = [
+    signals.googleTrend.label === "error",
+    signals.competition.label === "error" || signals.competition.label === "no data",
+    signals.reviewVelocity.label === "error" || signals.reviewVelocity.label === "no reviews",
+    signals.demand.label === "error",
+  ].filter(Boolean).length;
+
+  const effectiveMin = blockedSignals >= 2 ? Math.floor(PRE_VALIDATION_MIN * 0.85) : PRE_VALIDATION_MIN;
+  if (blockedSignals >= 2) {
+    console.log(`[Validation] ${blockedSignals} signals blocked/errored — likely IP block. Adjusting threshold to ${effectiveMin}`);
+  }
+
+  // Require at least MIN_POSITIVE_SIGNALS to be clearly positive — not just neutral/error scores.
+  // This prevents borderline products sneaking through on all-neutral signals.
+  const positiveSignals = [
+    signals.googleTrend.score >= 15,    // growing or growing fast
+    signals.competition.score >= 15,    // winnable or very winnable
+    signals.reviewVelocity.score >= 11, // at least some review activity
+    signals.priceStability.score >= 12, // stable or rising price
+    signals.demand.score >= 12,         // moderate or high demand
+  ].filter(Boolean).length;
+
+  const hasEnoughPositives = positiveSignals >= MIN_POSITIVE_SIGNALS;
+  if (!hasEnoughPositives) {
+    console.log(`[Validation] Only ${positiveSignals}/${MIN_POSITIVE_SIGNALS} required positive signals — blocking PPC spend`);
+  }
+
+  const passed = totalScore >= effectiveMin && hasEnoughPositives;
 
   const summary = [
     `Google Trends: ${signals.googleTrend.label} (${signals.googleTrend.score}/${WEIGHTS.googleTrend})`,
@@ -532,7 +562,7 @@ export async function runPreValidation(product, browser) {
   ].join(" | ");
 
   console.log(
-    `[Validation] Pre-PPC score: ${totalScore}/100 — ${passed ? "PROCEED to PPC test" : "SKIP"}`
+    `[Validation] Pre-PPC score: ${totalScore}/100 (threshold: ${effectiveMin}) — ${passed ? "PROCEED to PPC test" : "SKIP"}`
   );
   console.log(`[Validation] ${summary}`);
 
@@ -540,9 +570,10 @@ export async function runPreValidation(product, browser) {
     score: totalScore,
     signals,
     passed,
+    blockedSignals,
     reason: passed
       ? `Score ${totalScore}/100 — ${summary}`
-      : `Score ${totalScore}/100 too low (need ${PRE_VALIDATION_MIN}) — ${summary}`,
+      : `Score ${totalScore}/100 too low (need ${effectiveMin}${blockedSignals >= 2 ? `, adjusted from ${PRE_VALIDATION_MIN} due to ${blockedSignals} blocked signals` : ""}) — ${summary}`,
     seasonal: signals.googleTrend.seasonal,
   };
 }

@@ -52,6 +52,82 @@ function usd(n) {
 // ─── Opportunity Alert ────────────────────────────────────────────────────────
 
 /**
+ * Build the Step 1 HTML block based on actual listing + validation state.
+ */
+function buildStep1Html(p) {
+  const listed = !!p.listingSubmittedAt;
+  const hasCampaign = !!p.validationCampaignId;
+  const metrics = p.validationMetrics;
+  const status = p.validationStatus;
+
+  // Pre-validation failed — nothing was submitted
+  if (status === "pre_failed") {
+    return `
+    <div style="background:#fff8f8;border:1px solid #f5c6c6;border-radius:8px;padding:20px;margin-bottom:20px;">
+      <h2 style="margin:0 0 8px;font-size:16px;color:#c0392b;">Step 1 — Pre-Validation Failed ✗</h2>
+      <p style="margin:0;font-size:14px;color:#555;">This product did <strong>not</strong> pass demand checks (Google Trends, competition depth, review velocity). The listing was <strong>not submitted</strong> and no PPC campaign ran. <strong>Do not order inventory.</strong></p>
+    </div>`;
+  }
+
+  // Listing submitted, PPC campaign created, metrics available
+  if (listed && hasCampaign && metrics) {
+    const clicks = metrics.clicks ?? "—";
+    const orders = metrics.orders ?? "—";
+    const cvr = metrics.conversionRate != null ? `${(metrics.conversionRate * 100).toFixed(1)}%` : "—";
+    const acos = metrics.spend > 0 && metrics.sales > 0 ? `${((metrics.spend / metrics.sales) * 100).toFixed(0)}%` : "—";
+    const passed = status === "validated";
+    const color = passed ? "#f0fff4" : "#fff8f8";
+    const borderColor = passed ? "#c0e8c0" : "#f5c6c6";
+    const badge = passed ? "✅ Validated — Safe to Order" : "⚠️ PPC Results Below Threshold";
+    return `
+    <div style="background:${color};border:1px solid ${borderColor};border-radius:8px;padding:20px;margin-bottom:20px;">
+      <h2 style="margin:0 0 8px;font-size:16px;color:#1a1a2e;">Step 1 — ${badge}</h2>
+      <table style="font-size:14px;color:#333;width:100%;margin-top:8px;">
+        <tr><td style="padding:3px 12px 3px 0;"><strong>Clicks:</strong></td><td>${clicks}</td></tr>
+        <tr><td style="padding:3px 12px 3px 0;"><strong>Orders:</strong></td><td>${orders}</td></tr>
+        <tr><td style="padding:3px 12px 3px 0;"><strong>Conversion Rate:</strong></td><td>${cvr}</td></tr>
+        <tr><td style="padding:3px 12px 3px 0;"><strong>ACoS:</strong></td><td>${acos}</td></tr>
+      </table>
+    </div>`;
+  }
+
+  // Listing submitted, campaign running, no results yet
+  if (listed && hasCampaign) {
+    return `
+    <div style="background:#fffbf0;border:1px solid #f0dca0;border-radius:8px;padding:20px;margin-bottom:20px;">
+      <h2 style="margin:0 0 8px;font-size:16px;color:#1a1a2e;">Step 1 — PPC Campaign Running ⏳</h2>
+      <p style="margin:0;font-size:14px;color:#555;">Listing submitted. PPC validation campaign is live — waiting for enough clicks and sales data before a buy decision. Check back in 3–5 days.</p>
+    </div>`;
+  }
+
+  // Listing submitted but no Ads credentials configured
+  if (listed && status === "listed_no_ads") {
+    return `
+    <div style="background:#fff8f0;border:1px solid #f0c080;border-radius:8px;padding:20px;margin-bottom:20px;">
+      <h2 style="margin:0 0 8px;font-size:16px;color:#c07000;">Step 1 — Listing Live, PPC Blocked ⚠️</h2>
+      <p style="margin:0 0 10px;font-size:14px;color:#555;">Your listing is live on Amazon but the bot <strong>cannot run a PPC validation campaign</strong> because Amazon Ads API credentials are missing in Railway.</p>
+      <p style="margin:0;font-size:14px;color:#555;">To fix: add <code>AMAZON_ADS_CLIENT_ID</code>, <code>AMAZON_ADS_CLIENT_SECRET</code>, and <code>AMAZON_ADS_REFRESH_TOKEN</code> to your Railway environment variables. Until then, check your Amazon Ads console manually to see clicks.</p>
+    </div>`;
+  }
+
+  // Listing submitted, no campaign yet
+  if (listed) {
+    return `
+    <div style="background:#fffbf0;border:1px solid #f0dca0;border-radius:8px;padding:20px;margin-bottom:20px;">
+      <h2 style="margin:0 0 8px;font-size:16px;color:#1a1a2e;">Step 1 — Listing Submitted, Campaign Pending ⏳</h2>
+      <p style="margin:0;font-size:14px;color:#555;">Listing is live on Amazon. PPC validation campaign has not started yet — <strong>do not order inventory</strong> until click data comes in.</p>
+    </div>`;
+  }
+
+  // Nothing done yet
+  return `
+  <div style="background:#f5f5f5;border:1px solid #ddd;border-radius:8px;padding:20px;margin-bottom:20px;">
+    <h2 style="margin:0 0 8px;font-size:16px;color:#555;">Step 1 — Pending</h2>
+    <p style="margin:0;font-size:14px;color:#555;">Listing has not been submitted yet. <strong>Do not order inventory.</strong></p>
+  </div>`;
+}
+
+/**
  * Send a single "order this product" action email for the best validated opportunity.
  * @param {Array} products - Array of product objects — only the top 1 is shown
  */
@@ -131,10 +207,7 @@ export async function sendOpportunityAlert(products) {
         </div>
 
         <!-- Step 1 -->
-        <div style="background:#f0f8ff;border:1px solid #c0d8f0;border-radius:8px;padding:20px;margin-bottom:20px;">
-          <h2 style="margin:0 0 8px;font-size:16px;color:#1a1a2e;">Step 1 — Done ✅</h2>
-          <p style="margin:0;font-size:14px;color:#555;">Listing has been submitted to your Amazon Seller Central automatically. PPC validation campaign is running.</p>
-        </div>
+        ${buildStep1Html(p)}
 
         <!-- Step 2 — Supplier -->
         ${supplierSection}

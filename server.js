@@ -438,10 +438,10 @@ async function runResearch() {
             listingSubmittedAt = new Date().toISOString();
             console.log(`[Research] Listing submitted to Amazon for ${lead.asin}`);
 
-            // Start validation PPC campaign
-            const ppc = await getPPCManager();
+            // Start validation PPC campaign (requires Ads API credentials)
             const { hasAdsCredentials } = await import("./amazon_auth.js");
             if (hasAdsCredentials()) {
+              const ppc = await getPPCManager();
               const campaign = await ppc.createValidationCampaign({
                 ...lead,
                 sku,
@@ -449,6 +449,8 @@ async function runResearch() {
               });
               validationCampaignId = campaign.campaignId;
               console.log(`[Research] Validation campaign started for ${lead.asin}`);
+            } else {
+              console.warn(`[Research] Amazon Ads credentials missing — listing submitted but NO PPC campaign. Set AMAZON_ADS_CLIENT_ID, AMAZON_ADS_CLIENT_SECRET, AMAZON_ADS_REFRESH_TOKEN in Railway to enable click validation.`);
             }
           }
         } catch (err) {
@@ -456,6 +458,7 @@ async function runResearch() {
         }
       }
 
+      const { hasAdsCredentials: checkAds } = await import("./amazon_auth.js");
       const productEntry = {
         ...lead,
         sku,
@@ -463,7 +466,11 @@ async function runResearch() {
         suppliers,
         listing,
         listingSubmittedAt,
-        validationStatus: validationCampaignId ? "validating" : null,
+        validationStatus: validationCampaignId
+          ? "validating"
+          : listingSubmittedAt
+          ? "listed_no_ads"
+          : null,
         validationCampaignId,
         validationStartedAt: validationCampaignId ? new Date().toISOString() : null,
         preValidation,
@@ -486,7 +493,7 @@ async function runResearch() {
 
   // Send single best product email — only if pre-validation passed AND listing written
   const actionableProducts = newProducts.filter(
-    (p) => p.listing && p.opportunityScore >= 60 && p.margin >= 25
+    (p) => p.listing && p.opportunityScore >= 75 && p.margin >= 30
   );
 
   // Run review sentiment analysis on new leads to surface competitor weaknesses
@@ -1284,6 +1291,26 @@ app.post("/run-reviews", (req, res) => {
   runAndTrack("reviews", runReviews).catch((err) =>
     console.error("[API] Review check failed:", err.message)
   );
+});
+
+// GET /stats — for status-bot dashboard
+app.get("/stats", async (req, res) => {
+  try {
+    const dbMod = await getDB();
+    const db = dbMod.loadDB();
+    const opps = db.opportunities || [];
+    const active = opps.filter(o => o.status !== "passed");
+    const listed = opps.filter(o => o.listing);
+    res.json({
+      status: "ok",
+      totalOpportunities: opps.length,
+      activeOpportunities: active.length,
+      listed: listed.length,
+      lastRun: db.lastResearchAt || null,
+    });
+  } catch (err) {
+    res.status(500).json({ status: "error", error: err.message });
+  }
 });
 
 // GET /opportunities
